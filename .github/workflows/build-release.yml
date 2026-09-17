@@ -1,10 +1,8 @@
 name: build-release
 
 on:
-  push:
-    branches:
-      - main
-      - master
+  # 只手动触发：日常 push 不再全平台编译，发版时在 Actions 页面 Run workflow
+  # 并可填 version_name / version_code。
   workflow_dispatch:
     inputs:
       version_name:
@@ -102,6 +100,17 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # 跨次缓存 Gradle：runner 是一次性虚拟机，不缓存则每次空手下载依赖
+      # + 重编 Kotlin（~60s 依赖下载 + 数分钟编译）。命中缓存时省 2-3 分钟。
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
       - run: |
           if [ -z "${ANDROID_KEYSTORE_BASE64}" ]; then
             echo "ANDROID_KEYSTORE_BASE64 is missing"
@@ -368,4 +377,5 @@ jobs:
             macos-artifact/FeiNiuMusic-v*-MacOS.dmg
             macos-artifact/FeiNiuMusic-v*-MacOS.zip
             ios-artifact/FeiNiuMusic-v*-iOS-unsigned.ipa
+
 
