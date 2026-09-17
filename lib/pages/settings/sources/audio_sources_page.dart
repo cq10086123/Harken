@@ -103,22 +103,22 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
 
   // ── 扫描 ──────────────────────────────────────────────────────
 
-  /// 扫描前的存储权限保障。
+  /// 扫描前的音频权限保障（普通系统弹窗，无需跳系统设置）。
   ///
-  /// Android 11+ 分区存储下，dart:io 的 Directory.list 无法列共享存储
-  /// （/storage/emulated/0/...），必须持有「所有文件访问」
-  /// (MANAGE_EXTERNAL_STORAGE)；READ_MEDIA_AUDIO 只管 MediaStore 查询，
-  /// 管不了文件系统遍历。缺失时 Directory.list 抛异常被扫描器静默吞掉，
-  /// 表现就是「共 0 首」。这里显式申请，不通过就不启动扫描。
+  /// Android 13+ 请求 READ_MEDIA_AUDIO，12 及以下请求存储权限。
+  /// 拿到后：无「所有文件访问」时扫描自动走 MediaStore 路线（见
+  /// MediaStoreScanner）；已授予所有文件访问则走 dart:io 遍历。
   Future<bool> _ensureScanPermission() async {
     if (!Platform.isAndroid) return true;
-    await Permission.audio.request();
-    final manage = await Permission.manageExternalStorage.request();
-    if (manage.isGranted) return true;
+    final audio = await Permission.audio.request();
+    if (audio.isGranted) return true;
+    // Android 12 及以下回退到传统存储权限
+    final storage = await Permission.storage.request();
+    if (storage.isGranted) return true;
     if (mounted) {
       AppToast.show(
         context,
-        '需要「所有文件访问」权限才能扫描本地目录，请在系统设置中开启',
+        '需要音频权限才能扫描本地音乐，请允许后重试',
         type: ToastType.error,
       );
     }
