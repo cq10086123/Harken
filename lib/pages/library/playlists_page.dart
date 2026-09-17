@@ -15,6 +15,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/playlist_service.dart';
+import '../../app/services/source/playlist_router.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/song_match/backend_match_client.dart';
 import '../../app/services/player_service.dart';
@@ -49,7 +50,7 @@ class _PlaylistsPageState extends State<PlaylistsPage>
       GlobalKey<AppPageScaffoldState>();
 
   late final _loading = createSignal(true);
-  late final _playlists = createSignal<List<FeiNiuPlaylist>>([]);
+  late final _playlists = createSignal<List<PlaylistRef>>([]);
   late final _sortMode = createSignal('name');
   late final _ascending = createSignal(true);
   late final _isRefreshing = createSignal(false);
@@ -1793,7 +1794,6 @@ class PlaylistPickerSheet extends StatefulWidget {
 
 class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
     with SignalsMixin {
-  final FeiNiuPlaylistService _service = FeiNiuPlaylistService.instance;
 
   late final _loading = createSignal(true);
   late final _playlists = createSignal<List<FeiNiuPlaylist>>([]);
@@ -1806,7 +1806,7 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
 
   Future<void> _load() async {
     _loading.value = true;
-    final playlists = await _service.getPlaylistList();
+    final playlists = await PlaylistRouter.instance.playlistsForPick();
     if (!mounted) return;
     _playlists.value = playlists;
     _loading.value = false;
@@ -1819,11 +1819,11 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
       initial: '',
       confirmText: '创建',
       fallbackName: '新建歌单',
-      onSubmit: (name) async {
-        final created = await _service.createPlaylist(name);
-        await _service.addTracks(created.guid, widget.songIds);
-        if (!mounted) return;
-        AppToast.show(context, '已收藏到歌单');
+              onSubmit: (name) async {
+                await PlaylistRouter.instance
+                    .createAndAdd(name, widget.songIds);
+                if (!mounted) return;
+                AppToast.show(context, '已收藏到歌单');
         Future.delayed(const Duration(milliseconds: 80), () {
           if (!mounted) return;
           Navigator.of(context).pop(true);
@@ -1832,8 +1832,14 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
     );
   }
 
-  Future<void> _addToPlaylist(FeiNiuPlaylist playlist) async {
-    await _service.addTracks(playlist.guid, widget.songIds);
+  Future<void> _addToPlaylist(PlaylistRef playlist) async {
+    final added =
+        await PlaylistRouter.instance.addIds(playlist, widget.songIds);
+    if (!added) {
+      if (!mounted) return;
+      AppToast.show(context, '本地歌曲无法加入飞牛歌单，请新建本地歌单');
+      return;
+    }
     if (!mounted) return;
     AppToast.show(context, '已收藏到歌单');
     Navigator.of(context).pop(true);
@@ -1864,36 +1870,14 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
                   else
                     ..._playlists.value.map(
                       (p) => ListTile(
-                        leading: p.coverId != null && p.coverId!.isNotEmpty
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: CachedNetworkImage(
-                                  imageUrl: FeiNiuApiClient.instance.coverUrl(
-                                    p.coverId!,
-                                    size: FeiNiuApiClient.coverRequestSize,
-                                    updatedAt: p.updatedAt,
-                                  ),
-                                  httpHeaders:
-                                      FeiNiuApiClient.imageAuthHeaders(),
-                                  width: 40,
-                                  height: 40,
-                                  memCacheWidth: 40,
-                                  memCacheHeight: 40,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, _, _) => Icon(
-                                    Icons.queue_music_rounded,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                ),
-                              )
-                            : Icon(
-                                Icons.queue_music_rounded,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
+                        leading: Icon(
+                          p.isLocal
+                              ? Icons.library_music_rounded
+                              : Icons.queue_music_rounded,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                         title: Text(
-                          p.name,
+                          p.isLocal ? '${p.name}（本地）' : p.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1915,8 +1899,8 @@ Future<bool> showAddToPlaylistDialog(
   final ids = songIds.where((e) => e.trim().isNotEmpty).toList();
   if (ids.isEmpty) return false;
 
-  final service = FeiNiuPlaylistService.instance;
-  final playlists = await service.getPlaylistList();
+  final router = PlaylistRouter.instance;
+  final playlists = await router.playlistsForPick();
   if (!context.mounted) return false;
 
   final result = await showDialog<bool>(
@@ -1935,8 +1919,8 @@ Future<bool> showAddToPlaylistDialog(
               confirmText: '创建',
               fallbackName: '新建歌单',
               onSubmit: (name) async {
-                final created = await service.createPlaylist(name);
-                await service.addTracks(created.guid, ids);
+                final created =
+                    await PlaylistRouter.instance.createAndAdd(name, ids);
                 if (!context.mounted) return;
                 AppToast.show(context, '已添加到歌单: ${created.name}');
               },
@@ -1955,37 +1939,24 @@ Future<bool> showAddToPlaylistDialog(
                   itemBuilder: (context, index) {
                     final playlist = playlists[index];
                     return AppListTile(
-                      leading:
-                          playlist.coverId != null &&
-                              playlist.coverId!.isNotEmpty
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: CachedNetworkImage(
-                                imageUrl: FeiNiuApiClient.instance.coverUrl(
-                                  playlist.coverId!,
-                                  size: FeiNiuApiClient.coverRequestSize,
-                                  updatedAt: playlist.updatedAt,
-                                ),
-                                httpHeaders: FeiNiuApiClient.imageAuthHeaders(),
-                                width: 40,
-                                height: 40,
-                                memCacheWidth: 40,
-                                memCacheHeight: 40,
-                                fit: BoxFit.cover,
-                                errorWidget: (_, _, _) => Icon(
-                                  Icons.queue_music,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            )
-                          : Icon(
-                              Icons.queue_music,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                      title: playlist.name,
+                      leading: Icon(
+                        playlist.isLocal
+                            ? Icons.library_music_rounded
+                            : Icons.queue_music,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      title: playlist.isLocal
+                          ? '${playlist.name}（本地）'
+                          : playlist.name,
                       subtitle: null,
                       onTap: () async {
-                        await service.addTracks(playlist.guid, ids);
+                        final added =
+                            await router.addIds(playlist, ids);
+                        if (!added) {
+                          if (!context.mounted) return;
+                          AppToast.show(context, '本地歌曲无法加入飞牛歌单，请新建本地歌单');
+                          return;
+                        }
                         if (!context.mounted) return;
                         Navigator.pop(dialogContext, true);
                         AppToast.show(context, '已添加到歌单: ${playlist.name}');
