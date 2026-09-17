@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/router/app_page_route.dart';
 import '../../app/services/feiniu/api_client.dart';
-import '../../app/services/feiniu/favorite_service.dart';
+import '../../app/services/source/favorite_router.dart';
 import '../../app/services/feiniu/transcode_service.dart';
 import '../../app/services/player/player_engine.dart';
 import '../../app/services/player_service.dart';
@@ -53,7 +53,7 @@ class SongDetailSheet extends StatefulWidget {
 }
 
 class _SongDetailSheetState extends State<SongDetailSheet> {
-  final FeiNiuFavoriteService _favoriteService =
+  final FavoriteRouter _favoriteRouter = FavoriteRouter.instance;
       FeiNiuFavoriteService.instance;
   bool _isFavorite = false;
   bool _loadingFavorite = true;
@@ -86,7 +86,7 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
 
   Future<void> _loadFavoriteState() async {
     try {
-      final isFav = await _favoriteService.isFavorite(widget.song.id);
+      final isFav = await _favoriteRouter.isFavorite(widget.song);
       if (!mounted) return;
       setState(() {
         _isFavorite = isFav;
@@ -102,12 +102,12 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
     if (_loadingFavorite) return;
     try {
       if (_isFavorite) {
-        await _favoriteService.unfavorite(widget.song.id);
+        await _favoriteRouter.setFavorite(widget.song, false);
         if (!mounted) return;
         setState(() => _isFavorite = false);
         AppToast.show(context, '已取消收藏');
       } else {
-        await _favoriteService.favorite(widget.song.id);
+        await _favoriteRouter.setFavorite(widget.song, true);
         if (!mounted) return;
         setState(() => _isFavorite = true);
         AppToast.show(context, '已收藏');
