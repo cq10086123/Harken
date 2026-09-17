@@ -27,6 +27,7 @@ import '../../pages/settings/volume_settings_page.dart';
 import '../../pages/settings/launch_settings_page.dart';
 import '../../pages/settings/transcode_settings_page.dart';
 import '../../pages/settings/search_source_page.dart';
+import '../../pages/settings/sources/audio_sources_page.dart';
 import '../../pages/settings/match_settings_page.dart';
 import '../../pages/settings/metadata_match_settings_page.dart';
 import '../../pages/settings/dlna_settings_page.dart';
@@ -78,6 +79,7 @@ class AppRoutes {
   static const profile = '/profile';
   static const batchMatch = '/songs/batch-match';
   static const dataSourceSettings = '/settings/data-sources';
+  static const audioSources = '/settings/audio-sources';
   static const matchSettings = '/settings/match';
   static const metadataMatchSettings = '/settings/metadata-match';
   static const transcodeSettings = '/settings/transcode';
@@ -130,6 +132,7 @@ class AppRouter {
           .cast<SongEntity>(),
     ),
     AppRoutes.dataSourceSettings: (_) => const SearchSourcePage(),
+    AppRoutes.audioSources: (_) => const AudioSourcesPage(),
     AppRoutes.matchSettings: (_) => const MatchSettingsPage(),
     AppRoutes.metadataMatchSettings: (_) => const MetadataMatchSettingsPage(),
     AppRoutes.transcodeSettings: (_) => const TranscodeSettingsPage(),

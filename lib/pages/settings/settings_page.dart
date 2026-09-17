@@ -88,6 +88,24 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
               const SizedBox(height: 16),
+              // 音源比「功能」里的各项高一层：那些是「飞牛这一个音源怎么调」，
+              // 这里是「有哪几个音源」，所以单独成组并放在功能之前。
+              AppSettingSection(
+                title: '音源',
+                children: [
+                  AppSettingTile(
+                    title: '音源管理',
+                    subtitle: '飞牛音乐、本地文件夹（WebDAV 待接入）',
+                    leading: const Icon(Icons.library_music_outlined),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.audioSources,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               AppSettingSection(
                 title: '功能',
                 children: [

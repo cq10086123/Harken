@@ -29,6 +29,7 @@ import 'app/services/feiniu/api_client.dart';
 import 'app/services/feiniu/auth_service.dart';
 import 'app/services/feiniu/fn_connection_probe_service.dart';
 import 'app/services/song_match/match_source_state.dart';
+import 'app/services/source/source_registry.dart';
 import 'app/state/settings_island_lyric.dart';
 import 'app/state/settings_lyric_companion.dart';
 import 'app/state/settings_match.dart';
@@ -109,6 +110,10 @@ Future<void> main() async {
   // 转码设置须在 PlayerService（MediaNotificationService.init）之前加载：
   // 启动恢复自动播放时 _sourceForSong 会同步读转码开关，未加载会读到默认关。
   await AppTranscodeSettings.ensureLoaded();
+  // 音源配置须在 PlayerService 启动恢复之前加载：_sourceForSong 按
+  // song.sourceId 分派取源，未加载时 configFor 会回落到隐式飞牛配置，
+  // 本地音源的歌在启动恢复的那一刻会被当成飞牛歌处理。
+  await AudioSourceRegistry.instance.ensureLoaded();
   // 播放器构建队列前获取当前网络类型，使「Wi-Fi 下直连」首次播放即可生效；
   // 后续网络切换由服务持续监听。
   await NetworkConnectionService.instance.init();
