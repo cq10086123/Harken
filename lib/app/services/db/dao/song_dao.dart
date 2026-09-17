@@ -90,6 +90,17 @@ class SongDao {
   }
 
   /// 本地音源歌曲（isLocal = 1，未标记删除）。本地库量级有限，直接全量取。
+  /// 设置本地歌曲的收藏状态（飞牛歌的收藏走服务端，不经这里）。
+  Future<int> setFavorite(String id, bool favorite) async {
+    final db = await DbHelper.instance.database;
+    return db.update(
+      DbConstants.tableSongs,
+      {'isFavorite': favorite ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<List<SongEntity>> fetchLocalSongs() async {
     final db = await DbHelper.instance.database;
     final rows = await db.query(
