@@ -7,6 +7,7 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../app/router/app_page_route.dart';
 import '../../app/services/companion/metadata_companion_service.dart';
+import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/cue_service.dart';
 import '../../app/services/feiniu/track_service.dart';
@@ -175,6 +176,10 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
 
   /// 按队列上限循环拉满该歌手的歌曲（供播放/随机按钮使用）。
   Future<List<SongEntity>> _fetchFilledSongs() async {
+    // 本地音源专辑：一次全量加载，无需翻页填充
+    if (widget.albumGuid == null) {
+      return List<SongEntity>.from(_songs.value);
+    }
     final full = List<SongEntity>.from(_songs.value);
     final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
     var page = 1;
@@ -661,6 +666,8 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
 
   /// 拉取「已加载页之后」的第 [page] 页专辑歌曲（供填充播放使用）。
   Future<List<SongEntity>> _fetchDetailPage(int page) async {
+    // 本地音源专辑（无飞牛 guid）：歌曲已在 _load 全量从数据库载入
+    if (widget.albumGuid == null) return _songs.value;
     final pageData = await _apiClient.getAlbumTracks(
       albumGUID: widget.albumGuid!,
       page: _loadedPages + page,
@@ -741,6 +748,33 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
       } catch (e) {
         debugPrint('[AlbumDetailPage] API error: $e');
         // Fall through to fallback
+      }
+    }
+
+    // Local path: 本地音源专辑（albumGuid == null）→ 从数据库按专辑取歌
+    if (!mounted) return;
+    if (widget.albumGuid == null) {
+      try {
+        final all = await SongDao().fetchLocalSongs();
+        final matched = all.where((s) {
+          if (widget.albumName == '未知专辑') {
+            final n = s.albumName;
+            return n == null ||
+                n.isEmpty ||
+                s.albumGuid == 'local-album:';
+          }
+          return s.albumGuid == 'local-album:${widget.albumName}';
+        }).toList();
+        if (!mounted) return;
+        _songs.value = sortAlbumDetailSongs(
+          matched,
+          sortKey: _sortKey.value,
+          ascending: _sortAscending.value,
+        );
+        _loading.value = false;
+        return;
+      } catch (e) {
+        debugPrint('[AlbumDetailPage] 本地专辑加载失败: $e');
       }
     }
 
