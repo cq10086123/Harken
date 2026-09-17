@@ -68,6 +68,30 @@ String pinyinKey(String text) {
   return (p.isNotEmpty ? p : trimmed).toLowerCase();
 }
 
+/// 从标题提取集数（有声书/播客常见命名）。
+///
+/// 支持格式（按优先级）：
+/// 1. `第001集` / `第12话` / `第3回` / `第5章` / `第2部` / `第8期`（数字可带前导零）
+/// 2. `EP01` / `ep3` / `Track 4` 等英文前缀
+/// 3. 兜底：标题里第一串连续数字（`01、标题` / `12 标题`）
+/// 找不到数字返回 null（排序时沉底）。前导零被 [int.parse] 天然抹平，
+/// 因此 第1集/第01集/第001集 会得到同一个数 1，按集数正确排序。
+int? episodeNumberOf(String title) {
+  final patterns = [
+    RegExp(r'第\s*(\d{1,4})\s*[集话回章部节期]'),
+    RegExp(r'(?:EP|Ep|ep|Track|track)\s*(\d{1,4})\b'),
+    RegExp(r'\d{1,4}'),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(title);
+    if (match != null) {
+      final value = int.tryParse(match.group(1) ?? match.group(0)!);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
 List<SongEntity> sortAlbumDetailSongs(
   Iterable<SongEntity> songs, {
   required String sortKey,
@@ -96,6 +120,14 @@ List<SongEntity> sortAlbumDetailSongs(
         return pinyinKey(a.artist).compareTo(pinyinKey(b.artist));
       case 'duration':
         return (a.durationMs ?? 0).compareTo(b.durationMs ?? 0);
+      case 'episode':
+        // 有声书：按标题里的集数数值排序（第1集/第01集/第001集 等价）。
+        // 没提到集数的沉底，同集数再按标题拼音。
+        final episodeA = episodeNumberOf(a.title) ?? (1 << 30);
+        final episodeB = episodeNumberOf(b.title) ?? (1 << 30);
+        final episodeResult = episodeA.compareTo(episodeB);
+        if (episodeResult != 0) return episodeResult;
+        return pinyinKey(a.title).compareTo(pinyinKey(b.title));
       case 'trackNumber':
       default:
         return albumOrder(a, b);
@@ -648,7 +680,10 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   late final _loading = createSignal(true);
   late final _songs = createSignal<List<SongEntity>>([]);
   late final _showCovers = createSignal(true);
-  late final _sortKey = createSignal('trackNumber');
+  // 本地音源专辑（有声书场景）默认按集数排序；飞牛远程专辑维持轨道号。
+  late final _sortKey = createSignal(
+    widget.albumGuid == null ? 'episode' : 'trackNumber',
+  );
   late final _sortAscending = createSignal(true);
 
   /// 已加载页数：首拉 page:1 size:200 一次拿完，后续填充从已加载页之后起。
@@ -800,6 +835,11 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
         return SortSheet(
           title: '更多',
           options: const [
+            SortOption(
+              key: 'episode',
+              label: '有声书（集数）',
+              icon: Icons.auto_stories,
+            ),
             SortOption(
               key: 'trackNumber',
               label: '轨道号',
