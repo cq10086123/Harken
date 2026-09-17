@@ -325,7 +325,9 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [build-windows, build-android, build-macos]
+    # 必须等待全部四个平台：iOS 不在 needs 里时，publish 会在 ios-build
+    # 产物尚未上传时提前下载，报 Artifact not found（竞态）。
+    needs: [build-windows, build-android, build-macos, build-ios]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -386,6 +388,7 @@ jobs:
             macos-artifact/Harken-v*-MacOS.dmg
             macos-artifact/Harken-v*-MacOS.zip
             ios-artifact/Harken-v*-iOS-unsigned.ipa
+
 
 
 
