@@ -75,20 +75,41 @@
 
 ## 图标
 
-应用图标（牛角音符）由 `scripts/generate_icons.py` 从同一份矢量几何生成，
-覆盖 Android / iOS / macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
+应用图标为 **H + 声波弧**：`H` 是品牌名首字母，声波弧取自 Harken 的本义
+「倾听 / 聆听」，同时表达音频与音乐。纯色扁平、无渐变与光效，全图仅 5 个形状。
+
+图标由 `scripts/generate_icons.py` 从同一份矢量几何生成，覆盖 Android / iOS /
+macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
 
 ```bash
-python3 scripts/generate_icons.py            # 重新生成全部平台图标
+python3 scripts/generate_icons.py             # 重新生成全部平台图标
 python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
 ```
 
-矢量源：`assets/icon/app_icon.svg`（彩色）、`assets/icon/app_icon_mono.svg`（单色剪影）。
-位图渲染优先使用 resvg（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），
-未安装时回落到 ImageMagick。
+矢量源：`assets/icon/app_icon.svg`（亮色）、`app_icon_dark.svg`（深色）、
+`app_icon_mono.svg`（单色剪影）。位图渲染优先使用 resvg
+（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），未安装时回落到 ImageMagick。
 
-> 注意：图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
-> monochrome 层）。修改图标请改 `scripts/generate_icons.py` 中的几何参数后重新运行。
+### 明暗两套
+
+| 主题 | 底色 | 标记 |
+| :--- | :--- | :--- |
+| 亮色 | 红 `#F02B3C` | 白 |
+| 深色 | 黑 `#101014` | 白 |
+
+跟随系统切换的落地方式：
+
+- **Android** —— 自适应图标底色走资源限定符（`values/` 与 `values-night/` 下的
+  `ic_launcher_background`）；传统方形图标另有 `mipmap-night-*` 一套。
+- **Web** —— `index.html` 用 `prefers-color-scheme` 媒体查询在两个
+  favicon 之间切换，并同步 `<meta name="theme-color">`。
+- **iOS / Windows / macOS** —— 系统不支持 Dock / 任务栏图标随明暗切换，统一使用
+  亮色版；iOS 启动图用红色标记，在明暗两种启动背景上都清晰。
+
+> 注意两点：
+> 1. 图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
+>    monochrome 层）。修改图标请改 `scripts/generate_icons.py` 的几何参数后重新运行。
+> 2. 小于 48px 的尺寸会自动去掉声波弧（间隙不足 2px 会糊成一片），只保留 H。
 
 ## 与上游 NagoMusic 的差异
 
@@ -97,7 +118,7 @@ python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
 - 引入双播放器架构（系统解码 + FFmpeg 兜底），扩展无损格式支持
 - 新增 TV / 平板自适应布局与遥控器焦点导航
 - 净化和精简上游冗余代码，适配飞牛场景
-- 重绘全套品牌图标与启动画面，替换上游遗留 Logo（详见「图标」一节）
+- 重绘全套品牌图标与启动画面（H + 声波弧），替换上游遗留 Logo（详见「图标」一节）
 
 ## 适用平台
 
