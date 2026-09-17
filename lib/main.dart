@@ -35,6 +35,19 @@ import 'app/state/settings_lyric_companion.dart';
 import 'app/state/settings_match.dart';
 import 'app/state/settings_state.dart';
 
+/// 启动步骤看门狗：单步 4 秒超时 + 异常吞掉（记日志）。
+/// main() 里任何初始化步骤都不允许阻塞或炸掉启动流程——否则 App 卡死在
+/// 启动页（实例：flutter_displaymode 在模拟器/后台启动时抛 noActivity，
+/// NetworkConnectionService/存储 IO 在异常环境下可能挂起）。超时跳过的
+/// 步骤由各服务的幂等 ensureLoaded 在后续首次访问时兜底补齐。
+Future<void> _startupGuard(Future<void> step, String tag) async {
+  try {
+    await step.timeout(const Duration(seconds: 4));
+  } catch (e) {
+    DebugLogService.instance.add('[startup] $tag 失败/超时（已忽略）: $e');
+  }
+}
+
 Future<void> main() async {
   // 在一切之前安装进程级 SSL 拦截钩子
   // 此钩子覆盖进程内所有 HttpClient（Dio、CachedNetworkImage/flutter_cache_manager 等共用），
@@ -55,7 +68,7 @@ Future<void> main() async {
   } catch (e) {
     debugPrint('MediaKit.ensureInitialized failed: $e');
   }
-  await DebugLogService.instance.ensureLoaded();
+  await _startupGuard(DebugLogService.instance.ensureLoaded(), 'DebugLogService.instance.ensureLoaded');
   // 全局异常捕获：release 下 Flutter 默认只输出无信息的
   // “Another exception was thrown: Instance of 'DiagnosticsProperty<void>'”
   // 级联产物，真异常（含堆栈）被吞，无法定位闪退根因。这里把首条异常
@@ -75,7 +88,7 @@ Future<void> main() async {
   };
   // TV 检测必须在 runApp 前完成，避免首帧后再切换布局造成闪变。
   // TV 面板固定 60Hz，强制高刷无意义甚至闪烁，因此高刷调用跳过 TV。
-  await TvDetection.ensureLoaded();
+  await _startupGuard(TvDetection.ensureLoaded(), 'TvDetection.ensureLoaded');
   final isTvDevice = TvDetection.result.value;
   // flutter_displaymode 仅 Android 实现；Windows/桌面端跳过（无高刷概念）。
   if (!isTvDevice && Platform.isAndroid) {
@@ -91,7 +104,7 @@ Future<void> main() async {
   // 先加载设置：确保持久化的「TV 模式」手动开关已就位，再合并检测结果。
   // 必须放在 syncTvMode() 之前，否则重启后已开启的开关读不进来，
   // tvMode 会被算成 false（设置不丢失，但布局不会切到 TV）。
-  await AppLayoutSettings.ensureLoaded();
+  await _startupGuard(AppLayoutSettings.ensureLoaded(), 'AppLayoutSettings.ensureLoaded');
   // 合并自动检测 + 设置页手动强制开关，写入 tvMode。
   TvDetectionAutoValue.value = isTvDevice;
   AppLayoutSettings.syncTvMode();
@@ -113,22 +126,22 @@ Future<void> main() async {
   // isFirstLaunchSession 需在 PlayerService 启动恢复（_restorePlaybackState
   // 读 shouldAutoPlayOnAppLaunch）之前确定，否则首次启动引导页勾选的
   // 「进入应用自动播放」可能在本次启动就被自动播放（应等下次启动生效）。
-  await AppOnboardingSettings.ensureLoaded();
+  await _startupGuard(AppOnboardingSettings.ensureLoaded(), 'AppOnboardingSettings.ensureLoaded');
   // 转码设置须在 PlayerService（MediaNotificationService.init）之前加载：
   // 启动恢复自动播放时 _sourceForSong 会同步读转码开关，未加载会读到默认关。
-  await AppTranscodeSettings.ensureLoaded();
+  await _startupGuard(AppTranscodeSettings.ensureLoaded(), 'AppTranscodeSettings.ensureLoaded');
   // 音源配置须在 PlayerService 启动恢复之前加载：_sourceForSong 按
   // song.sourceId 分派取源，未加载时 configFor 会回落到隐式飞牛配置，
   // 本地音源的歌在启动恢复的那一刻会被当成飞牛歌处理。
-  await AudioSourceRegistry.instance.ensureLoaded();
+  await _startupGuard(AudioSourceRegistry.instance.ensureLoaded(), 'AudioSourceRegistry.instance.ensureLoaded');
   // 播放器构建队列前获取当前网络类型，使「Wi-Fi 下直连」首次播放即可生效；
   // 后续网络切换由服务持续监听。
-  await NetworkConnectionService.instance.init();
+  await _startupGuard(NetworkConnectionService.instance.init(), 'NetworkConnectionService.instance.init');
   // 便携模式·换机检测：数据目录跟随 exe，若文件夹被拷到另一台电脑运行，
   // 自动清空本机 NAS 密码/token/安全码（保留服务器地址与用户名），
   // 避免把本机凭据带到别的机器。须在 AuthService.init（恢复会话）之前执行。
-  await AppPortableStorage.checkMachineOwner();
-  await AuthService.instance.init();
+  await _startupGuard(AppPortableStorage.checkMachineOwner(), 'AppPortableStorage.checkMachineOwner');
+  await _startupGuard(AuthService.instance.init(), 'AuthService.instance.init');
   // Android：MediaSession / 通知栏 / Android Auto。
   // iOS/macOS：MPNowPlayingInfoCenter / MPRemoteCommandCenter（锁屏/控制中心“正在播放”）。
   //
@@ -159,7 +172,7 @@ Future<void> main() async {
   // AppLayoutSettings 已在上面 ensureLoaded，可安全订阅 currentSong。
   // AppThemeSettings 需先 ensureLoaded：TrackChangeOverlayService 在切歌时
   // 用主题设置计算悬浮窗卡片配色（computeCardColors），若未加载会读到默认值。
-  await AppThemeSettings.ensureLoaded();
+  await _startupGuard(AppThemeSettings.ensureLoaded(), 'AppThemeSettings.ensureLoaded');
   // 切歌悬浮窗/灵动岛歌词均为 Android 系统级通知（SYSTEM_ALERT_WINDOW /
   // HyperOS 焦点通知），桌面端无对应实现，跳过启动避免无谓构造 PlayerService。
   if (Platform.isAndroid) {
@@ -168,13 +181,13 @@ Future<void> main() async {
   // 通知歌词灵动岛监听：依赖 PlayerService 与 LyricsService 已就绪。
   // 设置懒加载（IslandLyricSettings.ensureLoaded）由设置页与 start 内部处理，
   // 默认关闭不打扰。
-  await IslandLyricSettings.ensureLoaded();
+  await _startupGuard(IslandLyricSettings.ensureLoaded(), 'IslandLyricSettings.ensureLoaded');
   if (Platform.isAndroid) {
     IslandLyricService.start();
   }
   // 数据源匹配设置 + 服务端增强（FnMusicEnhance）设置：启动时加载。
-  await MatchSettings.ensureLoaded();
-  await MatchSourceState.instance.ensureLoaded();
+  await _startupGuard(MatchSettings.ensureLoaded(), 'MatchSettings.ensureLoaded');
+  await _startupGuard(MatchSourceState.instance.ensureLoaded(), 'MatchSourceState.instance.ensureLoaded');
   // 后台刷新可用平台（不阻塞启动）：首次运行拉取列表并默认全启用，
   // 后续启动读缓存；后端不可达时静默保留缓存。
   unawaited(() async {
@@ -184,19 +197,19 @@ Future<void> main() async {
       // 后端不可达：保留缓存，不阻塞启动
     }
   }());
-  await LyricCompanionSettings.ensureLoaded();
-  await AppBackgroundSettings.ensureLoaded();
+  await _startupGuard(LyricCompanionSettings.ensureLoaded(), 'LyricCompanionSettings.ensureLoaded');
+  await _startupGuard(AppBackgroundSettings.ensureLoaded(), 'AppBackgroundSettings.ensureLoaded');
   // 液体玻璃设置需在首帧前加载：首帧即尊重持久化的关闭态，避免闪一帧玻璃。
-  await AppGlassSettings.ensureLoaded();
-  await AppFnConnectionSettings.ensureLoaded();
+  await _startupGuard(AppGlassSettings.ensureLoaded(), 'AppGlassSettings.ensureLoaded');
+  await _startupGuard(AppFnConnectionSettings.ensureLoaded(), 'AppFnConnectionSettings.ensureLoaded');
   // 已保存账号列表初始化：迁移/校正当前账号，并注册 401 token 同步回调。
   // 需在 AuthService.init（恢复激活槽位）与 AppFnConnectionSettings.ensureLoaded
   // （读取安全码/FNID）之后执行。
-  await AccountStore.instance.init();
-  await PlayerStyleSettings.ensureLoaded();
-  await AppLaunchNavigationSettings.ensureLoaded();
+  await _startupGuard(AccountStore.instance.init(), 'AccountStore.instance.init');
+  await _startupGuard(PlayerStyleSettings.ensureLoaded(), 'PlayerStyleSettings.ensureLoaded');
+  await _startupGuard(AppLaunchNavigationSettings.ensureLoaded(), 'AppLaunchNavigationSettings.ensureLoaded');
   // DLNA 投屏设置（播放页投屏按钮据此显示/隐藏）
-  await DlnaCastSettings.ensureLoaded();
+  await _startupGuard(DlnaCastSettings.ensureLoaded(), 'DlnaCastSettings.ensureLoaded');
   // 桌面端「关闭按钮隐藏到托盘」（Windows/macOS 共用，默认开启）
   await CloseToTraySettings.ensureLoaded();
   // Windows 系统托盘：拦截关闭按钮 + 托盘菜单（播放控制/退出）。
