@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:lpinyin/lpinyin.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../app/router/app_page_route.dart';
@@ -680,11 +681,29 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   late final _loading = createSignal(true);
   late final _songs = createSignal<List<SongEntity>>([]);
   late final _showCovers = createSignal(true);
-  // 本地音源专辑（有声书场景）默认按集数排序；飞牛远程专辑维持轨道号。
+  // 排序偏好持久化（选中后跨会话记住）。默认：本地音源专辑（有声书场景）
+  // 按集数排序，飞牛远程专辑按轨道号。
+  static const String _prefsSortKey = 'album_detail_sort_mode_v1';
+  static const String _prefsSortAscending =
+      'album_detail_sort_ascending_v1';
   late final _sortKey = createSignal(
     widget.albumGuid == null ? 'episode' : 'trackNumber',
   );
   late final _sortAscending = createSignal(true);
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString(_prefsSortKey);
+    if (mode != null && mode.isNotEmpty) _sortKey.value = mode;
+    final asc = prefs.getBool(_prefsSortAscending);
+    if (asc != null) _sortAscending.value = asc;
+  }
+
+  Future<void> _savePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsSortKey, _sortKey.value);
+    await prefs.setBool(_prefsSortAscending, _sortAscending.value);
+  }
 
   /// 已加载页数：首拉 page:1 size:200 一次拿完，后续填充从已加载页之后起。
   final int _loadedPages = 1;
@@ -692,7 +711,11 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   @override
   void initState() {
     super.initState();
-    _load();
+    // 先读排序偏好再加载，避免首帧按默认排序闪一下。
+    _loadPrefs().then((_) {
+      if (!mounted) return;
+      _load();
+    });
   }
 
   /// 拉取「已加载页之后」的第 [page] 页专辑歌曲（供填充播放使用）。
@@ -858,10 +881,12 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
           onSelectKey: (value) {
             _sortKey.value = value;
             _sortSongs();
+            unawaited(_savePrefs());
           },
           onSelectAscending: (value) {
             _sortAscending.value = value;
             _sortSongs();
+            unawaited(_savePrefs());
           },
           extra: Watch.builder(
             builder: (context) {
