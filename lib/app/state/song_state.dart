@@ -216,6 +216,17 @@ class SongEntity {
     }
   }
 
+  /// 解析 album JSON 获取专辑名
+  String? get albumName {
+    if (album == null) return null;
+    try {
+      final map = jsonDecode(album!) as Map<String, dynamic>;
+      return map['name'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 解析 album JSON 获取专辑 coverId（track 的 album JSON 内嵌 coverId）。
   String? get albumCoverId {
     if (album == null) return null;
