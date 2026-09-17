@@ -75,23 +75,23 @@
 
 ## 图标
 
-应用图标为 **音符 + 声波尾**：纯白压红底，只有 4 个形状，纯色扁平、无渐变与光效。
+应用图标为 **声波 H**：
 
-- **符头 + 符干** = 音乐；
-- **符尾的位置换成两道向右扩散的声波弧** = Harken 的本义「倾听」。
+- 白色粗体字母 **H**（品牌首字母）；
+- H 的**横杠化作一条流动的正弦声波** —— 一个笔画同时是「字母」与「音频」；
+- 深海军蓝渐变底（`#1E3A6B` → `#0B1830`）+ 纯白主体。
 
-一个形同时表达「音乐」与「聆听」，既不是随处可见的通用音符，也不依赖字母。
-
-比例是对标 Spotify / Apple Music / Deezer 一类一线音乐 App 图标定的：
+比例是对标 Spotify / Apple Music 一类一线 App 图标定的：
 
 | 指标 | 取值 | 说明 |
 | :--- | :--- | :--- |
-| 笔画粗细 | 画布 11.6% | 过细会发虚、像程序生成 |
+| 竖笔粗细 | 画布 13.2% | 过细会发虚、像程序生成 |
+| 波形厚度 | 画布 10.8% | 波峰处略微加粗，避免视觉上比竖笔细 |
 | 标记宽度 | 画布 62% | 过小会显得空 |
-| 形状数 | 4 | 音符与声波共用一个形，不做额外装饰 |
+| 形状数 | 3 | 两竖 + 波形横杠，不做额外装饰 |
 
-> 声波弧的半径由「等间隙」递推（圆心落在符干右上角）。直接给半径会让第一道弧
-> 与符干的间距偏大，读不出声波向外扩散的递进关系。
+> 波形端点伸入竖笔内部（按竖笔宽归一），因此横杠与竖笔之间不会出现接缝或缺口；
+> 波形两端相位归零，端点正好落在中线上被竖笔遮住。
 
 图标由 `scripts/generate_icons.py` 从同一份矢量几何生成，覆盖 Android / iOS /
 macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
@@ -101,25 +101,25 @@ python3 scripts/generate_icons.py             # 重新生成全部平台图标
 python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
 ```
 
-矢量源：`assets/icon/app_icon.svg`（亮色）、`app_icon_dark.svg`（深色）、
-`app_icon_mono.svg`（单色剪影）。位图渲染优先使用 resvg
-（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），未安装时回落到 ImageMagick。
+矢量源：`assets/icon/app_icon.svg`（彩色）、`assets/icon/app_icon_mono.svg`（单色剪影）。
+位图渲染优先使用 resvg（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），
+未安装时回落到 ImageMagick。
 
-### 明暗两套
+### 关于明暗两套
 
-| 主题 | 底色 | 标记 |
-| :--- | :--- | :--- |
-| 亮色 | 红 `#F02B3C` | 白 |
-| 深色 | 黑 `#101014` | 白 |
+图标底色本身是深海军蓝，在浅色与深色系统下观感一致，因此**只有一套资源**，
+不需要按 `uiMode` 切换（早期红/黑两版曾用 `mipmap-night-*` 与
+`prefers-color-scheme` 做过双套，现已移除）。
 
-跟随系统切换的落地方式：
+### 各平台落点
 
-- **Android** —— 自适应图标底色走资源限定符（`values/` 与 `values-night/` 下的
-  `ic_launcher_background`）；传统方形图标另有 `mipmap-night-*` 一套。
-- **Web** —— `index.html` 用 `prefers-color-scheme` 媒体查询在两个
-  favicon 之间切换，并同步 `<meta name="theme-color">`。
-- **iOS / Windows / macOS** —— 系统不支持 Dock / 任务栏图标随明暗切换，统一使用
-  亮色版；iOS 启动图用红色标记，在明暗两种启动背景上都清晰。
+| 位置 | 处理 |
+| :--- | :--- |
+| Android 自适应图标 | 渐变底用 `drawable/ic_launcher_background.xml`（`shape` + `gradient`），前景为白色标记透明底，另有单色层供 Android 13+ 主题图标 |
+| Android 开屏 | 整枚图标（渐变底 + 白标），明暗开屏背景上都成立 |
+| iOS / macOS | 全尺寸 AppIcon；启动图为整枚图标居中 |
+| macOS 菜单栏 | 单色剪影（系统按明暗自动反色） |
+| Windows / 托盘 | 多分辨率 `.ico`；托盘用完整图标，避免白标在浅色任务栏上不可见 |
 
 > 注意：图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
 > monochrome 层）。修改图标请改 `scripts/generate_icons.py` 的几何参数后重新运行。

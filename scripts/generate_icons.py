@@ -1,28 +1,17 @@
 #!/usr/bin/env python3
 """Harken 应用图标生成器（单一矢量源 → 全平台资源）。
 
-设计：**音符 + 声波尾**，纯白压红底。
-- 符头 + 符干 = 音乐；
-- 原本符尾的位置换成两道向右扩散的声波弧 = Harken 的本义「倾听」。
-一个形同时表达「音乐」与「聆听」，且不是随处可见的通用音符。
+设计：**声波 H**。
+- 白色粗体字母 H（品牌首字母）；
+- H 的横杠化作一条流动的正弦声波 —— 一个笔画同时是「字母」与「音频」；
+- 深海军蓝渐变底（#1E3A6B → #0B1830）+ 纯白主体。
 
-比例依据（对标 Spotify / Apple Music / Deezer 一类一线音乐 App 图标）：
-- 笔画粗细 ≈ 画布 11.6%
+比例依据（对标 Spotify / Apple Music 一类一线 App 图标）：
+- 竖笔粗细 ≈ 画布 13%，波形横杠略细（≈10.8%）
 - 标记占画布宽度 62%，视觉重心居中
-- 只有 4 个形状（符头 + 符干 + 两道弧），纯色、无渐变 / 辉光 / 投影
+- 只有 3 个形状（两竖 + 波形横杠），无渐变于标记上、无辉光、无投影
 
-深浅两套：
-- 亮色：红底 #F02B3C + 白标
-- 暗色：黑底 #101014 + 白标
-跟随系统的平台（Android 资源限定符、浏览器 favicon 媒体查询）出两套；
-Dock / 任务栏图标系统不支持切换的平台用亮色版。
-
-用法：
-    python3 scripts/generate_icons.py             # 生成全部平台资源
-    python3 scripts/generate_icons.py --svg-only  # 只写矢量源
-
-依赖：写 SVG / XML 无需依赖；位图渲染优先 resvg
-（`npm i @resvg/resvg-js`，逐尺寸直出），否则回落 ImageMagick。
+底色本身是深色，明暗模式下观感一致，因此不再区分亮/暗两套资源。
 """
 
 from __future__ import annotations
@@ -43,26 +32,26 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # --------------------------------------------------------------------------
 
 MARK = dict(
-    # ---- 音符 ----
-    head_r=0.158,        # 符头半径（画布比例）
-    head_x=0.244,
-    head_y=0.726,
-    stem_w=0.116,        # 符干宽 = 画布 11.6%，一线音乐 App 图标的量级
-    stem_top=0.238,
-    # ---- 声波弧（取代符尾）----
-    # 圆心落在符干右上角；半径由「等间隙」递推，保证两道弧的间隔与
-    # 第一道弧到符干的间隔一致（直接给半径会让首个间隙偏大，读不出递进）。
-    wave_first_r=0.132,
-    wave_gap=0.090,
-    wave_w=0.084,
-    wave_span=60.0,      # 弧的张开半角（度）
-    wave_count=2,
-    wave_dx=0.60,        # 圆心相对符干右缘的横向偏移（按符干宽归一）
-    wave_dy=0.34,
+    # ---- H 字形 ----
+    stem_w=0.132,        # 竖笔宽 = 画布 13.2%
+    h_gap=0.206,         # 两竖之间净空
+    h_top=0.200,
+    h_bottom=0.800,
+    # ---- 横杠：化作正弦声波 ----
+    wave_amp=0.056,      # 振幅（画布比例）
+    wave_periods=1.0,    # 一个完整周期
+    wave_t=0.108,        # 波形横杠的厚度
+    wave_taper=0.16,     # 波峰处略微加粗，避免视觉上比竖笔细
+    wave_ends=0.55,      # 波形端点伸入竖笔内部的比例（按竖笔宽归一），保证无缝
     # ---- 光学取景 ----
-    mark_w=0.62,         # 标记占画布宽度比例
+    mark_w=0.62,
     mark_cy=0.5,
 )
+
+# 品牌配色：深海军蓝渐变 + 纯白标记
+BRAND_BG_TOP = "#1E3A6B"
+BRAND_BG_BOTTOM = "#0B1830"
+BRAND_MARK = "#FFFFFF"
 
 # 配色
 LIGHT = dict(bg="#F02B3C", mark="#FFFFFF")
@@ -121,39 +110,43 @@ def path_of(poly, px) -> str:
 # 标记几何
 # --------------------------------------------------------------------------
 
-def note_polygons(p, *, detail=1.0):
-    """音符 + 声波：符头（圆）+ 符干（平顶圆角竖条）+ 两道同心声波弧。"""
-    hr, hx, hy = p["head_r"], p["head_x"], p["head_y"]
-    sw, top = p["stem_w"], p["stem_top"]
-    sx = hx + hr * 0.40                    # 符干左缘：与符头四分之三处相切
-    n = max(24, int(120 * detail))
-
-    polys = [circle_pts(hx, hy, hr, n=max(64, int(200 * detail))),
-             rrect(sx, top, sx + sw, hy, sw * 0.34)]
-
-    cx = sx + sw * p["wave_dx"]
-    cy = top + sw * p["wave_dy"]
-    r = p["wave_first_r"]
-    for _ in range(p["wave_count"]):
-        polys.append(arc_band(cx, cy, r, p["wave_w"],
-                              -p["wave_span"], p["wave_span"], n=max(30, int(90 * detail))))
-        r += p["wave_gap"] + p["wave_w"]
-    return polys
+def mark_polygons(params=None, mark_w=None, mark_cy=None):
+    p = dict(params or MARK)
+    return framing(h_wave_polygons(p),
+                   p["mark_w"] if mark_w is None else mark_w,
+                   p["mark_cy"] if mark_cy is None else mark_cy)
 
 
-def arc_band(cx, cy, r, w, a0, a1, n=90):
-    """圆弧带：外弧去 + 内弧回，得到有粗细的弧线。
+def h_wave_polygons(p, *, detail=1.0):
+    """声波 H：左竖 + 右竖 + 一条正弦波形横杠。
 
-    y 轴向下，故角度 90° 指向下方。弧的开口方向由 a0→a1 的走向决定。
+    波形端点伸入竖笔内部（wave_ends），因此横杠与竖笔之间不会出现接缝或缺口。
+    波形两端相位归零，端点正好落在中线上，被竖笔遮住。
     """
-    ro, ri = r + w / 2, r - w / 2
-    return (arcpts(cx, cy, ro, a0, a1, n) + arcpts(cx, cy, ri, a1, a0, n))
+    sw, gap = p["stem_w"], p["h_gap"]
+    top, bottom = p["h_top"], p["h_bottom"]
+    total = sw * 2 + gap
+    lx = 0.5 - total / 2
+    rx = lx + sw + gap
+    mid = (top + bottom) / 2
 
+    polys = [rrect(lx, top, lx + sw, bottom, sw * 0.40),
+             rrect(rx, top, rx + sw, bottom, sw * 0.40)]
 
-def arcpts(cx, cy, r, a0, a1, n=24):
-    return [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
-             cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / n)))
-            for i in range(n + 1)]
+    x0 = lx + sw * p["wave_ends"]
+    x1 = rx + sw * (1 - p["wave_ends"])
+    n = max(40, int(260 * detail))
+    up, dn = [], []
+    for i in range(n + 1):
+        t = i / n
+        x = x0 + (x1 - x0) * t
+        # 两端相位归零：端点落在中线上，被竖笔完全遮住
+        y = mid + p["wave_amp"] * math.sin(2 * math.pi * p["wave_periods"] * t)
+        w = p["wave_t"] * (1.0 + p["wave_taper"] * math.sin(math.pi * t))
+        up.append((x, y - w / 2))
+        dn.append((x, y + w / 2))
+    polys.append(up + dn[::-1])
+    return polys
 
 
 def circle_pts(cx, cy, r, n=200):
@@ -186,13 +179,6 @@ def framing(polys, mark_w, mark_cy):
     return [[(x * s + tx, y * s + ty) for x, y in poly] for poly in polys]
 
 
-def mark_polygons(params=None, mark_w=None, mark_cy=None):
-    p = dict(params or MARK)
-    return framing(note_polygons(p),
-                   p["mark_w"] if mark_w is None else mark_w,
-                   p["mark_cy"] if mark_cy is None else mark_cy)
-
-
 def max_radius(mark_w: float) -> float:
     """标记在当前 mark_w 下的最大顶点半径（相对画布宽度），用于安全区反解。"""
     polys = mark_polygons(mark_w=mark_w)
@@ -208,16 +194,25 @@ def fit_mark_w(safe_ratio: float) -> float:
 # SVG 输出
 # --------------------------------------------------------------------------
 
-def build_svg(width: int, *, bg=None, mark="#FFFFFF", mark_w=None,
+def build_svg(width: int, *, gradient=True, bg=None, mark=BRAND_MARK, mark_w=None,
               mark_cy=None, radius=0.0) -> str:
+    """渲染标记。
+
+    gradient=True 时底色为品牌渐变（左上深→右下更深）；否则用 bg 指定纯色，
+    bg=None 表示透明底（用于开屏 / 主题图标等需要叠在别处的情形）。
+    """
     polys = mark_polygons(mark_w=mark_w, mark_cy=mark_cy)
-    body = ""
+    rx = f' rx="{f(radius * width)}" ry="{f(radius * width)}"' if radius else ""
+    defs = ""
+    if gradient:
+        defs = ('<defs><linearGradient id="brandBg" x1="0" y1="0" x2="1" y2="1">'
+                f'<stop offset="0" stop-color="{BRAND_BG_TOP}"/>'
+                f'<stop offset="1" stop-color="{BRAND_BG_BOTTOM}"/>'
+                '</linearGradient></defs>')
+        bg = "url(#brandBg)"
+    body = defs
     if bg:
-        if radius:
-            body += (f'<rect width="{width}" height="{width}" '
-                     f'rx="{f(radius * width)}" ry="{f(radius * width)}" fill="{bg}"/>')
-        else:
-            body += f'<rect width="{width}" height="{width}" fill="{bg}"/>'
+        body += f'<rect width="{width}" height="{width}"{rx} fill="{bg}"/>'
     body += "".join(f'<path d="{path_of(poly, width)}" fill="{mark}"/>' for poly in polys)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{width}" '
             f'viewBox="0 0 {width} {width}">\n{body}\n</svg>\n')
@@ -333,50 +328,45 @@ def write(path: str, text: str) -> None:
 
 
 def gen_android(r: Raster) -> None:
-    # 传统方形图标：亮/暗两套（mipmap-night-* 供深色模式）
+    # 传统方形图标：底色本身是深海军蓝，明暗模式观感一致，故只有一套
     for dens, size in ANDROID_MIPMAPS.items():
-        r.png(build_svg(size, bg=LIGHT["bg"], mark=LIGHT["mark"]),
+        r.png(build_svg(size),
               p(f"android/app/src/main/res/mipmap-{dens}/ic_launcher.png"), size)
-        r.png(build_svg(size, bg=DARK["bg"], mark=DARK["mark"]),
-              p(f"android/app/src/main/res/mipmap-night-{dens}/ic_launcher.png"), size)
 
-    # 自适应图标前景：白色标记 + 透明底，底色由资源给出，故深浅通用
+    # 自适应图标前景：白色标记 + 透明底，底色由 drawable 渐变给出
     adaptive_mw = round(fit_mark_w(33.0 / 108.0), 4)      # 中心 66dp 安全圆
     print(f"  自适应前景 mark_w={adaptive_mw}（安全圆 66/108dp）")
     for dens, size in ANDROID_ADAPTIVE.items():
-        r.png(build_svg(size, bg=None, mark="#FFFFFF", mark_w=adaptive_mw),
+        r.png(build_svg(size, gradient=False, bg=None, mark_w=adaptive_mw),
               p(f"android/app/src/main/res/mipmap-{dens}/ic_launcher_foreground.png"),
               size)
 
     write(p("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"),
           '''<?xml version="1.0" encoding="utf-8"?>
-<!-- 自适应图标（Android 8+）：底色 + 前景标记 + 单色层（Android 13+ 主题图标）。
-     底色按 uiMode 切换（values / values-night），故前景用白色标记，深浅通用。 -->
+<!-- 自适应图标（Android 8+）：渐变底 + 前景标记 + 单色层（Android 13+ 主题图标）。 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
+    <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
     <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>
 ''')
-    write(p("android/app/src/main/res/values/ic_launcher_background.xml"),
+    write(p("android/app/src/main/res/drawable/ic_launcher_background.xml"),
           f'''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- 自适应图标底色（亮色模式） -->
-    <color name="ic_launcher_background">{LIGHT["bg"]}</color>
-</resources>
-''')
-    write(p("android/app/src/main/res/values-night/ic_launcher_background.xml"),
-          f'''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- 自适应图标底色（深色模式）：跟随系统切为黑底 -->
-    <color name="ic_launcher_background">{DARK["bg"]}</color>
-</resources>
+<!-- 自适应图标底色：与位图图标同源的深海军蓝渐变（左上浅 → 右下深）。
+     angle=315 表示渐变方向指向左上，与 SVG 的 1,1 → 0,0 走向一致。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:startColor="{BRAND_BG_BOTTOM}"
+        android:endColor="{BRAND_BG_TOP}"
+        android:angle="315" />
+</shape>
 ''')
     write(p("android/app/src/main/res/drawable/ic_launcher_monochrome.xml"),
-          build_mono_vector_drawable(mark_w=0.60))
+          build_mono_vector_drawable(mark_w=0.62))
 
-    # 开屏 Logo：红色标记在白色 / 黑色开屏背景上都可见，故单份即可
-    r.png(build_svg(256, bg=None, mark=LIGHT["bg"], mark_w=0.72),
+    # 开屏 Logo：整枚图标（渐变底 + 白标），在明暗两种开屏背景上都成立
+    r.png(build_svg(256, mark_w=0.62),
           p("android/app/src/main/res/drawable-nodpi/launch_logo.png"), 256)
     print("  Android 图标完成")
 
@@ -390,21 +380,16 @@ def gen_ios(r: Raster) -> None:
         if not name:
             continue
         px = int(round(float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))))
-        # 小尺寸用简化标记；并去掉 alpha（App Store 审核要求）
-        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"]),
-              os.path.join(base, name), px, opaque=LIGHT["bg"])
+        # 去掉 alpha（App Store 审核要求）
+        r.png(build_svg(px), os.path.join(base, name), px, opaque=BRAND_BG_BOTTOM)
+    # 启动图：整枚图标居中（渐变底自身可见，无需依赖启动背景色）
     launch = p("ios/Runner/Assets.xcassets/LaunchImage.imageset")
     for name, scale in (("LaunchImage.png", 1), ("LaunchImage@2x.png", 2),
                         ("LaunchImage@3x.png", 3)):
         pw, ph = 168 * scale, 185 * scale
-        side = min(pw, ph)
-        svg = build_svg(side, bg=None, mark=LIGHT["bg"], mark_w=0.72)
-        # 启动图画布为 2:3 左右，标记在其中的正方形区域内居中
-        svg = svg.replace('<svg ', f'<svg ', 1).replace(
-            f'viewBox="0 0 {side} {side}"',
-            f'viewBox="{-round((pw - side) / 2)} {-round((ph - side) / 2)} {pw} {ph}"')
-        svg = svg.replace(f'width="{side}" height="{side}"', f'width="{pw}" height="{ph}"')
-        r.png(svg, os.path.join(launch, name), pw)
+        icon = round(min(pw, ph) * 0.72)
+        svg = build_svg(icon, radius=0.22)
+        r.png(svg, os.path.join(launch, name), icon)
     print("  iOS 图标完成")
 
 
@@ -417,9 +402,8 @@ def gen_macos(r: Raster) -> None:
         if not name:
             continue
         px = int(round(float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))))
-        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"]),
-              os.path.join(base, name), px)
-    # 菜单栏模板图标：单色剪影（系统按明暗自动反色）；18pt 用简化标记保证可读
+        r.png(build_svg(px), os.path.join(base, name), px)
+    # 菜单栏模板图标：单色剪影（系统按明暗自动反色）
     write(p("macos/Runner/Assets.xcassets/StatusBarIcon.imageset/status_bar_icon.svg"),
           build_mono_svg(18, mark_w=0.86))
     print("  macOS 图标完成")
@@ -428,43 +412,37 @@ def gen_macos(r: Raster) -> None:
 def gen_windows(r: Raster) -> None:
     sizes = (16, 24, 32, 48, 64, 128, 256)
     tmp = []
-    for s in sizes:
-        out = os.path.join(r.tmp, f"win_{s}.png")
-        r.png(build_svg(s, bg=LIGHT["bg"], mark=LIGHT["mark"],
-                        ), out, s)
+    for size in sizes:
+        out = os.path.join(r.tmp, f"win_{size}.png")
+        r.png(build_svg(size), out, size)
         tmp.append(out)
     r.ico(tmp, p("windows/runner/resources/app_icon.ico"))
     print("  Windows 图标完成")
 
 
 def gen_tray(r: Raster) -> None:
-    """托盘图标：透明底标记，深浅任务栏都可见；小尺寸用简化标记。"""
+    """托盘图标：整枚图标（含渐变底）。透明底白标在浅色任务栏上不可见，
+    故托盘统一用完整图标，深浅任务栏都能看清。"""
     sizes = (16, 20, 24, 32, 48, 64, 128, 256)
     tmp = []
-    for s in sizes:
-        out = os.path.join(r.tmp, f"tray_{s}.png")
-        r.png(build_svg(s, bg=None, mark=LIGHT["bg"], mark_w=0.88,
-                        ), out, s)
+    for size in sizes:
+        out = os.path.join(r.tmp, f"tray_{size}.png")
+        r.png(build_svg(size, radius=0.20 if size >= 32 else 0.0), out, size)
         tmp.append(out)
     r.ico(tmp, p("assets/icon/app_icon.ico"))
     print("  托盘图标完成")
 
 
 def gen_web(r: Raster) -> None:
-    # 应用内 Logo / PWA 图标：亮色版
-    r.png(build_svg(512, bg=LIGHT["bg"], mark=LIGHT["mark"]), p("assets/icon/app_icon.png"), 512)
-    r.png(build_svg(512, bg=LIGHT["bg"], mark=LIGHT["mark"]), p("web/icons/Icon-512.png"), 512)
-    r.png(build_svg(192, bg=LIGHT["bg"], mark=LIGHT["mark"]), p("web/icons/Icon-192.png"), 192)
+    r.png(build_svg(512), p("assets/icon/app_icon.png"), 512)
+    r.png(build_svg(512), p("web/icons/Icon-512.png"), 512)
+    r.png(build_svg(192), p("web/icons/Icon-192.png"), 192)
     maskable_mw = round(fit_mark_w(0.40), 4)      # maskable 安全区半径 40%
     print(f"  maskable 图标 mark_w={maskable_mw}（安全区半径 40%）")
-    for s in (192, 512):
-        r.png(build_svg(s, bg=LIGHT["bg"], mark=LIGHT["mark"], mark_w=maskable_mw),
-              p(f"web/icons/Icon-maskable-{s}.png"), s)
-    # 浏览器 favicon：亮/暗两套，由 index.html 的媒体查询切换
-    r.png(build_svg(32, bg=LIGHT["bg"], mark=LIGHT["mark"]),
-          p("web/favicon.png"), 32)
-    r.png(build_svg(32, bg=DARK["bg"], mark=DARK["mark"]),
-          p("web/favicon-dark.png"), 32)
+    for size in (192, 512):
+        r.png(build_svg(size, mark_w=maskable_mw),
+              p(f"web/icons/Icon-maskable-{size}.png"), size)
+    r.png(build_svg(32), p("web/favicon.png"), 32)
     print("  Web / 应用内图标完成")
 
 
@@ -473,12 +451,8 @@ def main() -> None:
     ap.add_argument("--svg-only", action="store_true", help="只写矢量源，不渲染位图")
     args = ap.parse_args()
 
-    write(p("assets/icon/app_icon.svg"),
-          build_svg(1024, bg=LIGHT["bg"], mark=LIGHT["mark"]))
-    write(p("assets/icon/app_icon_dark.svg"),
-          build_svg(1024, bg=DARK["bg"], mark=DARK["mark"]))
-    write(p("assets/icon/app_icon_mono.svg"),
-          build_mono_svg(512, mark_w=0.60))
+    write(p("assets/icon/app_icon.svg"), build_svg(1024))
+    write(p("assets/icon/app_icon_mono.svg"), build_mono_svg(512, mark_w=0.62))
     if args.svg_only:
         return
 

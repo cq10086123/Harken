@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标底色：与位图图标同源的深海军蓝渐变（左上浅 → 右下深）。
+     angle=315 表示渐变方向指向左上，与 SVG 的 1,1 → 0,0 走向一致。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:startColor="#0B1830"
+        android:endColor="#1E3A6B"
+        android:angle="315" />
+</shape>

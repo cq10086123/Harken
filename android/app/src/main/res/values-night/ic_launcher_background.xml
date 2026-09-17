@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- 自适应图标底色（深色模式）：跟随系统切为黑底 -->
-    <color name="ic_launcher_background">#101014</color>
-</resources>
