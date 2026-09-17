@@ -140,31 +140,29 @@ jobs:
           [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$PUB_CODE"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-      # 1) 正式包：默认包名 com.feiniu.music，三个 CPU 架构全部保留
-      - run: flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+      # 1) 正式包：默认包名 com.feiniu.music，仅编 arm64（主流安卓机均为 arm64，省去 32 位/x86 构建）
+      - run: flutter build apk --release --target-platform android-arm64 --build-name="$VERSION" --build-number="$BUILD_NUMBER"
         env:
           SIGNING_STORE_FILE: release.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - run: |
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+          # 单 ABI（--target-platform android-arm64）产物名为 app-release.apk
+          mv build/app/outputs/flutter-apk/app-release.apk \
              FeiNiuMusic-v${VERSION}-Android-arm64-v8a.apk
-          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
-             FeiNiuMusic-v${VERSION}-Android-armeabi-v7a.apk
-          mv build/app/outputs/flutter-apk/app-x86_64-release.apk \
-             FeiNiuMusic-v${VERSION}-Android-x86_64.apk
       # 2) 汽水音乐兼容包（非官方）：applicationId 覆盖为 com.luna.music，仅 arm64。
       #    用于鸿蒙 4/6、iQOO、VIVO 的播控中心显示汽水音乐控制（见 README 声明）。
       #    media_kit 媒体库（否则包体会大 ~13MB）。
-      - run: flutter build apk --release --split-per-abi --target-platform android-arm64 --android-project-arg applicationIdOverride=com.luna.music --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+      - run: flutter build apk --release --target-platform android-arm64 --android-project-arg applicationIdOverride=com.luna.music --build-name="$VERSION" --build-number="$BUILD_NUMBER"
         env:
           SIGNING_STORE_FILE: release.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - run: |
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+          # 单 ABI 产物名为 app-release.apk（上一步已先搬走主包，这里覆盖生成的是 luna 包）
+          mv build/app/outputs/flutter-apk/app-release.apk \
              FeiNiuMusic-v${VERSION}-Android-z-luna-arm64-v8a.apk
       # 3) 配套服务端增强应用 FPK：从 FnMusicEnhance 仓库拉取最新 release 产物。
       #    配套仓库尚无 release 时跳过（后续发布自然附带）。

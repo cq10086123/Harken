@@ -59,6 +59,12 @@ android {
             versionCode = (major * 10000 + minor * 100 + patch) * 100 +
                 flutter.versionCode
         }
+        // 仅打包 arm64 原生库：CI 只编 arm64 目标，但 media_kit 等 gradle 依赖
+        // 默认会把 armeabi-v7a / x86_64 的 libmpv.so 一并塞进 APK（每个 ~6MB）。
+        // --target-platform 只约束 Dart AOT，约束不了 jniLibs，必须在这里过滤。
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     val keystoreProperties = Properties()
