@@ -6,6 +6,17 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: "版本号（如 1.6.7），留空则使用 pubspec.yaml 中的版本"
+        required: false
+        default: ""
+        type: string
+      version_code:
+        description: "构建号 versionCode（整数），留空则使用 pubspec.yaml 中 + 号后的数字"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -39,16 +50,27 @@ jobs:
           channel: main
           flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
-      - name: 提取版本号
+      - name: 提取版本号（手动触发可覆盖）
         shell: powershell
         run: |
           $line = Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$' | Select-Object -First 1
           $full = $line.Matches[0].Groups[1].Value.Trim()
-          $ver = $full.Split('+')[0]
-          echo "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $pubName = $full.Split('+')[0]
+          $pubCode = if ($full -match '\+(.+)$') { $Matches[1] } else { '1' }
+          $name = "${{ inputs.version_name }}"
+          $code = "${{ inputs.version_code }}"
+          if (-not $name) { $name = $pubName }
+          if (-not $code) { $code = $pubCode }
+          echo "VERSION=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "BUILD_NUMBER=$code" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: 构建并打包 Windows 绿色版
         shell: powershell
-        run: .\scripts\package_windows.ps1 -Build
+        run: |
+          # 手动填写的版本号要写进 exe 资源信息，必须用 --build-name/--build-number 覆盖 pubspec
+          flutter build windows --release --build-name="$env:VERSION" --build-number="$env:BUILD_NUMBER"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # exe 已由上一步生成，脚本只负责打包（-Version 让 zip 文件名使用覆盖后的版本号）
+          .\scripts\package_windows.ps1 -Version $env:VERSION
       - name: 拷贝 zip 到工作区根目录（避免 upload-artifact 保留目录前缀）
         shell: powershell
         run: |
@@ -94,12 +116,20 @@ jobs:
       # 作编译期依赖，缺失即报 "File/directory does not exist"。precache 显式预下载全部
       # Android 引擎产物（含 arm32/arm64/x64）后再构建。
       - run: flutter precache --android
-      - run: |
+      - name: 提取版本号（手动触发可覆盖）
+        run: |
           FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-          VERSION=${FULL_VERSION%%+*}
+          PUB_NAME=${FULL_VERSION%%+*}
+          PUB_CODE=${FULL_VERSION##*+}
+          [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
+          VERSION="${{ inputs.version_name }}"
+          BUILD_NUMBER="${{ inputs.version_code }}"
+          [ -z "$VERSION" ] && VERSION="$PUB_NAME"
+          [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$PUB_CODE"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
       # 1) 正式包：默认包名 com.feiniu.music，三个 CPU 架构全部保留
-      - run: flutter build apk --release --split-per-abi
+      - run: flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
         env:
           SIGNING_STORE_FILE: release.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -115,7 +145,7 @@ jobs:
       # 2) 汽水音乐兼容包（非官方）：applicationId 覆盖为 com.luna.music，仅 arm64。
       #    用于鸿蒙 4/6、iQOO、VIVO 的播控中心显示汽水音乐控制（见 README 声明）。
       #    media_kit 媒体库（否则包体会大 ~13MB）。
-      - run: flutter build apk --release --split-per-abi --target-platform android-arm64 --android-project-arg applicationIdOverride=com.luna.music
+      - run: flutter build apk --release --split-per-abi --target-platform android-arm64 --android-project-arg applicationIdOverride=com.luna.music --build-name="$VERSION" --build-number="$BUILD_NUMBER"
         env:
           SIGNING_STORE_FILE: release.keystore
           SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -177,17 +207,24 @@ jobs:
           channel: main
           flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
-      - name: 提取版本号
+      - name: 提取版本号（手动触发可覆盖）
         shell: bash
         run: |
           FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-          VERSION=${FULL_VERSION%%+*}
+          PUB_NAME=${FULL_VERSION%%+*}
+          PUB_CODE=${FULL_VERSION##*+}
+          [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
+          VERSION="${{ inputs.version_name }}"
+          BUILD_NUMBER="${{ inputs.version_code }}"
+          [ -z "$VERSION" ] && VERSION="$PUB_NAME"
+          [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$PUB_CODE"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
       - name: 构建并打包 macOS（dmg + zip）
         shell: bash
         run: |
           flutter pub get
-          flutter build macos --release
+          flutter build macos --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           cd build/macos/Build/Products/Release
           # 1) 绿色版 zip（便携，免安装；ditto 保留 .app 内符号链接）
           ditto -c -k --sequesterRsrc --keepParent "飞牛音乐.app" \
@@ -226,17 +263,24 @@ jobs:
           channel: main
           flutter-version: c97838627ff5c275e9788839d427ab03eb1dfa01
           cache: true
-      - name: 提取版本号
+      - name: 提取版本号（手动触发可覆盖）
         shell: bash
         run: |
           FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-          VERSION=${FULL_VERSION%%+*}
+          PUB_NAME=${FULL_VERSION%%+*}
+          PUB_CODE=${FULL_VERSION##*+}
+          [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
+          VERSION="${{ inputs.version_name }}"
+          BUILD_NUMBER="${{ inputs.version_code }}"
+          [ -z "$VERSION" ] && VERSION="$PUB_NAME"
+          [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$PUB_CODE"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
       - name: 构建未签名 iOS 应用（.ipa 供自行签名）
         shell: bash
         run: |
           flutter pub get
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           # 手工组装 .ipa（Payload 结构）。未签名无内置描述文件，
           # 由签名工具（Sideloadly/AltStore 等）注入免费开发者签名。
           STAGE="${GITHUB_WORKSPACE}/ipa-stage"
@@ -258,10 +302,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: 提取版本号
+      - name: 提取版本号（手动触发可覆盖）
         run: |
           FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-          VERSION=${FULL_VERSION%%+*}
+          PUB_NAME=${FULL_VERSION%%+*}
+          VERSION="${{ inputs.version_name }}"
+          [ -z "$VERSION" ] && VERSION="$PUB_NAME"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
       - name: 生成 release 说明
         run: |
@@ -312,3 +358,4 @@ jobs:
             macos-artifact/FeiNiuMusic-v*-MacOS.dmg
             macos-artifact/FeiNiuMusic-v*-MacOS.zip
             ios-artifact/FeiNiuMusic-v*-iOS-unsigned.ipa
+
