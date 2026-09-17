@@ -1,6 +1,6 @@
 class DbConstants {
   static const String dbName = 'feiniu_music.db';
-  static const int dbVersion = 17;
+  static const int dbVersion = 18;
   static const String tableSongs = 'songs';
   static const String tablePlaylists = 'playlists';
   static const String tablePlaylistSongs = 'playlist_songs';

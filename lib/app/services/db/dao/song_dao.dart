@@ -106,6 +106,28 @@ class SongDao {
     return ids.map((id) => map[id]).whereType<SongEntity>().toList();
   }
 
+  /// 某个音源下所有歌曲的 ID。
+  ///
+  /// 只取 `id` 一列：本地音源重扫时要用它比对「上次扫到、这次没了」的文件，
+  /// 曲库几千首时把整行读出来纯属浪费。走 `idx_songs_source` 索引。
+  ///
+  /// [sourceId] 传 `SongEntity.defaultFeiniuSourceId` 时同时匹配 NULL ——
+  /// 历史飞牛数据的 `sourceId` 是 NULL，语义上归属默认飞牛音源
+  /// （与 `SongEntity.effectiveSourceId` 的口径保持一致）。
+  Future<List<String>> fetchIdsBySource(String sourceId) async {
+    final db = await DbHelper.instance.database;
+    final where = sourceId == SongEntity.defaultFeiniuSourceId
+        ? '(sourceId = ? OR sourceId IS NULL)'
+        : 'sourceId = ?';
+    final rows = await db.query(
+      DbConstants.tableSongs,
+      columns: ['id'],
+      where: where,
+      whereArgs: [sourceId],
+    );
+    return rows.map((row) => row['id']).whereType<String>().toList();
+  }
+
   Future<int> deleteByIds(List<String> ids) async {
     if (ids.isEmpty) return 0;
     final db = await DbHelper.instance.database;

@@ -6,6 +6,37 @@ class SongEntity {
   final String artist; // JSON: [{"guid":"...","name":"..."}]
   final String? album; // JSON: {"guid":"...","name":"..."}
   final String? uri;
+
+  /// 本首歌是否属于**本地音源**（本机文件系统上的音频文件）。
+  ///
+  /// 历史上这一位在建表时（v2 迁移）就存在，但实体一直没暴露字段、
+  /// `toMap()` 里写死 `'isLocal': 0`（永远是云端），因为当时只对接飞牛。
+  /// 多音源改造起把它接回来：播放取源（`PlayerService._sourceForSong`）
+  /// 据此决定走本地文件还是远端流。
+  ///
+  /// 默认 false —— 存量飞牛数据与所有既有构造点行为不变。
+  final bool isLocal;
+
+  /// 本首歌归属的音源 ID（见 `AudioSourceConfig.id`）。
+  ///
+  /// 命名空间按 kind 前缀区分，例如 `feiniu-<ts>` / `local-<ts>` / `webdav-<ts>`。
+  /// 存量飞牛数据为 null，读取时按 [defaultFeiniuSourceId] 归位，
+  /// 因此无需数据回填脚本。
+  final String? sourceId;
+
+  /// 本地文件的最后修改时间（毫秒），用于增量扫描判断是否需要重读标签。
+  final int? fileModifiedMs;
+
+  /// 本地内嵌封面落盘后的绝对路径。远端音源为 null（走 `coverId`）。
+  final String? localCoverPath;
+
+  /// 本地资源 ID（Android MediaStore asset id / iOS PHAsset localIdentifier）。
+  /// 自定义目录扫描的文件没有该值。
+  final String? localAssetId;
+
+  /// 标签是否已完整解析过。增量扫描据此跳过已解析文件，避免整库重读。
+  final bool tagsParsed;
+
   final String? headersJson;
   final int? durationMs;
   final int? bitrate;
@@ -29,6 +60,12 @@ class SongEntity {
     required this.artist,
     this.album,
     this.uri,
+    this.isLocal = false,
+    this.sourceId,
+    this.fileModifiedMs,
+    this.localCoverPath,
+    this.localAssetId,
+    this.tagsParsed = false,
     this.headersJson,
     this.durationMs,
     this.bitrate,
@@ -46,6 +83,17 @@ class SongEntity {
     this.cueOffsetMs,
     this.isAudioFileDeleted = false,
   });
+
+  /// 存量飞牛数据的归位音源 ID。
+  ///
+  /// 多音源改造前的库里所有行 `sourceId` 都是 NULL。读取时把 NULL 视作这个
+  /// 默认飞牛音源，于是老数据无需回填脚本即可正确分派到飞牛 provider。
+  static const String defaultFeiniuSourceId = 'feiniu-default';
+
+  /// 归属音源 ID，NULL 归位为 [defaultFeiniuSourceId]。
+  ///
+  /// 播放/收藏/歌单等所有按音源分派的地方都应读这个而不是裸 [sourceId]。
+  String get effectiveSourceId => sourceId ?? defaultFeiniuSourceId;
 
   /// 解析 artist JSON 获取歌手显示名
   String get artistDisplayName {
@@ -186,7 +234,12 @@ class SongEntity {
       'artist': artist,
       'album': album,
       'uri': uri,
-      'isLocal': 0, // 永远是云端
+      'isLocal': isLocal ? 1 : 0,
+      'sourceId': sourceId,
+      'fileModifiedMs': fileModifiedMs,
+      'localCoverPath': localCoverPath,
+      'localAssetId': localAssetId,
+      'tagsParsed': tagsParsed ? 1 : 0,
       'headersJson': headersJson,
       'durationMs': durationMs,
       'bitrate': bitrate,
@@ -218,6 +271,12 @@ class SongEntity {
       artist: (map['artist'] ?? '未知歌手').toString(),
       album: map['album']?.toString(),
       uri: map['uri']?.toString(),
+      isLocal: map['isLocal'] == true || map['isLocal'] == 1,
+      sourceId: map['sourceId']?.toString(),
+      fileModifiedMs: parseInt(map['fileModifiedMs']),
+      localCoverPath: map['localCoverPath']?.toString(),
+      localAssetId: map['localAssetId']?.toString(),
+      tagsParsed: map['tagsParsed'] == true || map['tagsParsed'] == 1,
       headersJson: map['headersJson']?.toString(),
       durationMs: parseInt(map['durationMs']),
       bitrate: parseInt(map['bitrate']),
@@ -244,6 +303,12 @@ class SongEntity {
     String? artist,
     String? album,
     String? uri,
+    bool? isLocal,
+    String? sourceId,
+    int? fileModifiedMs,
+    String? localCoverPath,
+    String? localAssetId,
+    bool? tagsParsed,
     String? headersJson,
     int? durationMs,
     int? bitrate,
@@ -267,6 +332,12 @@ class SongEntity {
       artist: artist ?? this.artist,
       album: album ?? this.album,
       uri: uri ?? this.uri,
+      isLocal: isLocal ?? this.isLocal,
+      sourceId: sourceId ?? this.sourceId,
+      fileModifiedMs: fileModifiedMs ?? this.fileModifiedMs,
+      localCoverPath: localCoverPath ?? this.localCoverPath,
+      localAssetId: localAssetId ?? this.localAssetId,
+      tagsParsed: tagsParsed ?? this.tagsParsed,
       headersJson: headersJson ?? this.headersJson,
       durationMs: durationMs ?? this.durationMs,
       bitrate: bitrate ?? this.bitrate,
