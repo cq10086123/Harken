@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 自适应图标（Android 8+）：渐变底 + 前景标记 + 单色层（Android 13+ 主题图标）。 -->
+<!-- 自适应图标（Android 8+）：渐变底 + 前景标记 + 单色层（Android 13+ 主题图标）。
+     前景已缩到中心安全区内，圆形 / 圆角蒙版不会裁掉声波两端。 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />

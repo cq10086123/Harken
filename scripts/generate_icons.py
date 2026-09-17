@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Harken 应用图标生成器（单一矢量源 → 全平台资源）。
 
-设计：**声波 H**。
-- 白色粗体字母 H（品牌首字母）；
-- H 的横杠化作一条流动的正弦声波 —— 一个笔画同时是「字母」与「音频」；
-- 深海军蓝渐变底（#1E3A6B → #0B1830）+ 纯白主体。
+设计：**流线声波**。
+- 深海军蓝→青绿的对角渐变底（#1E2966 → #22B9DA）；
+- 一条由多条白色细线扭成的声波带横贯画面，两端收束成一个尖点。
 
-比例依据（对标 Spotify / Apple Music 一类一线 App 图标）：
-- 竖笔粗细 ≈ 画布 13%，波形横杠略细（≈10.8%）
-- 标记占画布宽度 62%，视觉重心居中
-- 只有 3 个形状（两竖 + 波形横杠），无渐变于标记上、无辉光、无投影
+关键处理：
+1. **包络收束** —— 每条线的振幅由 sin(pi t)^p 包络调制，两端归零，
+   因此所有线在左右两端汇聚；各条线相位错开，中部自然展开成扭带。
+2. **按尺寸分级** —— 尺寸越小线越少、线越粗、振荡次数越少。若始终用 26 条细线，
+   48px 以下会相位混叠，看起来「峰数都变了」。
+3. **安全区适配** —— 自适应图标 / maskable 图标必须留出中心安全区，
+   故这两类把声波缩到画布 62% 居中，其余平台保持满幅。
 
-底色本身是深色，明暗模式下观感一致，因此不再区分亮/暗两套资源。
+用法：
+    python3 scripts/generate_icons.py             # 生成全部平台资源
+    python3 scripts/generate_icons.py --svg-only  # 只写矢量源
+
+依赖：写 SVG / XML 无需依赖；位图渲染优先 resvg
+（`npm i @resvg/resvg-js`，逐尺寸直出），否则回落 ImageMagick。
 """
 
 from __future__ import annotations
@@ -28,209 +35,169 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # --------------------------------------------------------------------------
-# 设计参数：坐标为 0~1 画布比例，渲染时按目标尺寸缩放
+# 设计参数
 # --------------------------------------------------------------------------
 
-MARK = dict(
-    # ---- H 字形 ----
-    stem_w=0.132,        # 竖笔宽 = 画布 13.2%
-    h_gap=0.206,         # 两竖之间净空
-    h_top=0.200,
-    h_bottom=0.800,
-    # ---- 横杠：化作正弦声波 ----
-    wave_amp=0.056,      # 振幅（画布比例）
-    wave_periods=1.0,    # 一个完整周期
-    wave_t=0.108,        # 波形横杠的厚度
-    wave_taper=0.16,     # 波峰处略微加粗，避免视觉上比竖笔细
-    wave_ends=0.55,      # 波形端点伸入竖笔内部的比例（按竖笔宽归一），保证无缝
-    # ---- 光学取景 ----
-    mark_w=0.62,
-    mark_cy=0.5,
+WAVE = dict(
+    amp=0.215,          # 振幅（画布比例）
+    freq=3.0,           # 振荡次数（中部 3 个波峰）
+    phase=-0.30,        # 起始相位
+    spread=0.44,        # 各条线之间的相位错开量 —— 决定扭带的「展开宽度」
+    envp=0.62,          # 包络幂次：越小越平坦、越大越集中在中间
+    samples=460,        # 每条线的采样点数
 )
 
-# 品牌配色：深海军蓝渐变 + 纯白标记
-BRAND_BG_TOP = "#1E3A6B"
-BRAND_BG_BOTTOM = "#0B1830"
-BRAND_MARK = "#FFFFFF"
+# 按尺寸分级：(线数, 线宽占画布比例, 振荡次数, 相位错开量)
+WAVE_TIERS = (
+    (256, dict(n=26, stroke=0.0018, freq=3.0, spread=0.44)),
+    (128, dict(n=26, stroke=0.0018, freq=3.0, spread=0.44)),
+    (64,  dict(n=17, stroke=0.0027, freq=3.0, spread=0.42)),
+    (32,  dict(n=11, stroke=0.0042, freq=2.0, spread=0.40)),
+    (0,   dict(n=6,  stroke=0.0085, freq=1.5, spread=0.38)),
+)
 
-# 配色
-LIGHT = dict(bg="#F02B3C", mark="#FFFFFF")
-DARK = dict(bg="#101014", mark="#FFFFFF")
+# 单色剪影用的是多条线的上下包络，线一少就出现内部白缝；
+# 因此小尺寸把相位错开量加大，让剪影在小图标上依然是一整条实心扭带。
+MONO_SPREAD_TIERS = ((128, 0.44), (0, 1.2))
 
-# 八分音符在所有尺寸下都清晰（16px 实测可读），无需按尺寸简化标记。
+BG_TOP = "#1E2966"          # 左上：深海军蓝
+BG_BOTTOM = "#22B9DA"       # 右下：青绿
+MARK = "#FFFFFF"
+
+SQUIRCLE_R = 0.225          # 独立图标资源的圆角（应用内展示 / 托盘 / 开屏）
+SAFE_MARK_W = 0.62          # 自适应 / maskable 图标的安全区缩放
+
+
+def tier_for(size: int, over: dict | None = None) -> dict:
+    p = next(t for lo, t in WAVE_TIERS if size >= lo)
+    out = dict(p)
+    if over:
+        out.update(over)
+    return out
+
+
+def mono_tier_for(size: int) -> dict:
+    return dict(spread=next(v for lo, v in MONO_SPREAD_TIERS if size >= lo))
+
 
 # --------------------------------------------------------------------------
-# 基础几何
+# 几何
 # --------------------------------------------------------------------------
 
 def f(v: float) -> str:
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
-def _arc(cx, cy, r, a0, a1, n=20):
-    return [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
-             cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / n)))
-            for i in range(n + 1)]
+def _envelope(t, p=0.62):
+    """两端归零的包络 → 所有线在左右两端汇聚成一个尖点。"""
+    return math.sin(math.pi * t) ** p
 
 
-def rrect(x0, y0, x1, y1, r):
-    """圆角矩形（顺时针）。"""
-    r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-    return (_arc(x0 + r, y0 + r, r, 180, 270) +
-            _arc(x1 - r, y0 + r, r, 270, 360) +
-            _arc(x1 - r, y1 - r, r, 0, 90) +
-            _arc(x0 + r, y1 - r, r, 90, 180))
+def wave_lines(n, amp, freq, phase, spread, envp, samples):
+    """返回 n 条折线，每条为 [(t, y)]，t∈[0,1]，y 相对中线。"""
+    lines = []
+    for i in range(n):
+        u = (i / (n - 1)) * 2 - 1 if n > 1 else 0.0     # -1..1
+        ph = phase + u * spread
+        line = []
+        for k in range(samples + 1):
+            t = k / samples
+            y = -amp * _envelope(t, envp) * math.sin(2 * math.pi * freq * t + ph)
+            line.append((t, y))
+        lines.append(line)
+    return lines
 
 
-def arc_band(cx, cy, r, w, a0, a1, n=48):
-    """圆弧带：外弧去 + 内弧回，构成有粗细的弧线。"""
-    ro, ri = r + w / 2, r - w / 2
-    return (_arc(cx, cy, ro, a0, a1, n) + _arc(cx, cy, ri, a1, a0, n))
+def wave_polys(size: int, *, mark_w=1.0, params=None) -> list[list[tuple[float, float]]]:
+    """声波带的多条折线，已按 mark_w 缩放并居中。"""
+    p = dict(params or WAVE)
+    p.update(tier_for(size, params))
+    sx = mark_w
+    polys = []
+    for line in wave_lines(p["n"], p["amp"], p["freq"], p["phase"],
+                           p["spread"], p["envp"], p["samples"]):
+        polys.append([(0.5 + (t - 0.5) * sx, 0.5 + y * sx) for t, y in line])
+    return polys
 
 
-def _signed_area(poly) -> float:
+def wave_svg_paths(size: int, *, mark_w=1.0, params=None):
+    """返回 (path_d, stroke_width_px) 列表。"""
+    p = dict(params or WAVE)
+    p.update(tier_for(size, params))
+    w = p["stroke"] * size
+    out = []
+    for poly in wave_polys(size, mark_w=mark_w, params=params):
+        d = "M " + " L ".join(f"{f(x * size)},{f(y * size)}" for x, y in poly)
+        out.append((d, w))
+    return out
+
+
+def band_closed_poly(mark_w=1.0, params=None, size=256):
+    """把整条声波带取成**一条闭合多边形**（用于单色剪影 / 主题图标）。
+
+    取所有线的上下包络：每列取最大与最小 y，构成带的轮廓。
+    """
+    p = dict(params or WAVE)
+    p.update(tier_for(size, params))
+    p.update(mono_tier_for(size))
+    lines = wave_lines(p["n"], p["amp"], p["freq"], p["phase"],
+                       p["spread"], p["envp"], p["samples"])
+    m = len(lines[0])
+    up, dn = [], []
+    for k in range(m):
+        t = lines[0][k][0]
+        ys = [ln[k][1] for ln in lines]
+        up.append((0.5 + (t - 0.5) * mark_w, 0.5 + min(ys) * mark_w))
+        dn.append((0.5 + (t - 0.5) * mark_w, 0.5 + max(ys) * mark_w))
+    return up + dn[::-1]
+
+
+# --------------------------------------------------------------------------
+# 通用绘图
+# --------------------------------------------------------------------------
+
+def ensure_cw(poly):
+    """统一为顺时针，避免 nonzero 填充规则下子路径互相抵消出现空洞。"""
     a = 0.0
     for i in range(len(poly)):
         x1, y1 = poly[i]
         x2, y2 = poly[(i + 1) % len(poly)]
         a += x1 * y2 - x2 * y1
-    return a / 2
-
-
-def ensure_cw(poly):
-    """统一为顺时针，避免 nonzero 填充下子路径互相抵消出现空洞。"""
-    return poly if _signed_area(poly) > 0 else poly[::-1]
+    return poly if a > 0 else poly[::-1]
 
 
 def path_of(poly, px) -> str:
     return "M " + " L ".join(f"{f(x * px)},{f(y * px)}" for x, y in poly) + " Z"
 
 
-# --------------------------------------------------------------------------
-# 标记几何
-# --------------------------------------------------------------------------
-
-def mark_polygons(params=None, mark_w=None, mark_cy=None):
-    p = dict(params or MARK)
-    return framing(h_wave_polygons(p),
-                   p["mark_w"] if mark_w is None else mark_w,
-                   p["mark_cy"] if mark_cy is None else mark_cy)
-
-
-def h_wave_polygons(p, *, detail=1.0):
-    """声波 H：左竖 + 右竖 + 一条正弦波形横杠。
-
-    波形端点伸入竖笔内部（wave_ends），因此横杠与竖笔之间不会出现接缝或缺口。
-    波形两端相位归零，端点正好落在中线上，被竖笔遮住。
-    """
-    sw, gap = p["stem_w"], p["h_gap"]
-    top, bottom = p["h_top"], p["h_bottom"]
-    total = sw * 2 + gap
-    lx = 0.5 - total / 2
-    rx = lx + sw + gap
-    mid = (top + bottom) / 2
-
-    polys = [rrect(lx, top, lx + sw, bottom, sw * 0.40),
-             rrect(rx, top, rx + sw, bottom, sw * 0.40)]
-
-    x0 = lx + sw * p["wave_ends"]
-    x1 = rx + sw * (1 - p["wave_ends"])
-    n = max(40, int(260 * detail))
-    up, dn = [], []
-    for i in range(n + 1):
-        t = i / n
-        x = x0 + (x1 - x0) * t
-        # 两端相位归零：端点落在中线上，被竖笔完全遮住
-        y = mid + p["wave_amp"] * math.sin(2 * math.pi * p["wave_periods"] * t)
-        w = p["wave_t"] * (1.0 + p["wave_taper"] * math.sin(math.pi * t))
-        up.append((x, y - w / 2))
-        dn.append((x, y + w / 2))
-    polys.append(up + dn[::-1])
-    return polys
-
-
-def circle_pts(cx, cy, r, n=200):
-    return [(cx + r * math.cos(2 * math.pi * i / n),
-             cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
-
-
-def bez(p0, c1, c2, p3, n=120):
-    out = []
-    for i in range(n + 1):
-        t = i / n
-        u = 1 - t
-        out.append((
-            u ** 3 * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t ** 3 * p3[0],
-            u ** 3 * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t ** 3 * p3[1],
-        ))
-    return out
-
-
-def framing(polys, mark_w, mark_cy):
-    """按标记自身包围盒做等比缩放 + 居中，保证各尺寸留白一致。"""
-    xs = [x for poly in polys for x, _ in poly]
-    ys = [y for poly in polys for _, y in poly]
-    bx0, bx1, by0, by1 = min(xs), max(xs), min(ys), max(ys)
-    bw = bx1 - bx0
-    s = mark_w / bw if bw else 1.0
-    bcx, bcy = (bx0 + bx1) / 2, (by0 + by1) / 2
-    tx = 0.5 - bcx * s
-    ty = mark_cy - bcy * s
-    return [[(x * s + tx, y * s + ty) for x, y in poly] for poly in polys]
-
-
-def max_radius(mark_w: float) -> float:
-    """标记在当前 mark_w 下的最大顶点半径（相对画布宽度），用于安全区反解。"""
-    polys = mark_polygons(mark_w=mark_w)
-    return max(math.hypot(x - 0.5, y - 0.5) for poly in polys for x, y in poly)
-
-
-def fit_mark_w(safe_ratio: float) -> float:
-    """求满足给定安全半径（相对画布宽度）的最大 mark_w。"""
-    return safe_ratio / max_radius(1.0)
-
-
-# --------------------------------------------------------------------------
-# SVG 输出
-# --------------------------------------------------------------------------
-
-def build_svg(width: int, *, gradient=True, bg=None, mark=BRAND_MARK, mark_w=None,
-              mark_cy=None, radius=0.0) -> str:
-    """渲染标记。
-
-    gradient=True 时底色为品牌渐变（左上深→右下更深）；否则用 bg 指定纯色，
-    bg=None 表示透明底（用于开屏 / 主题图标等需要叠在别处的情形）。
-    """
-    polys = mark_polygons(mark_w=mark_w, mark_cy=mark_cy)
-    rx = f' rx="{f(radius * width)}" ry="{f(radius * width)}"' if radius else ""
-    defs = ""
-    if gradient:
-        defs = ('<defs><linearGradient id="brandBg" x1="0" y1="0" x2="1" y2="1">'
-                f'<stop offset="0" stop-color="{BRAND_BG_TOP}"/>'
-                f'<stop offset="1" stop-color="{BRAND_BG_BOTTOM}"/>'
-                '</linearGradient></defs>')
-        bg = "url(#brandBg)"
-    body = defs
-    if bg:
-        body += f'<rect width="{width}" height="{width}"{rx} fill="{bg}"/>'
-    body += "".join(f'<path d="{path_of(poly, width)}" fill="{mark}"/>' for poly in polys)
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{width}" '
-            f'viewBox="0 0 {width} {width}">\n{body}\n</svg>\n')
-
-
-def build_mono_svg(size: int, *, mark_w=None) -> str:
-    """单色剪影（模板图标：读屏状态栏 / Android 主题化图标）。"""
-    polys = mark_polygons(mark_w=mark_w)
-    d = " ".join(path_of(ensure_cw(poly), size) for poly in polys)
+def build_svg(size: int, *, radius=0.0, mark_w=1.0, mono=False,
+              stroke_color=MARK) -> str:
+    """完整图标：渐变底（可选圆角）+ 白色声波带。"""
+    rx = f' rx="{f(radius * size)}" ry="{f(radius * size)}"' if radius else ""
+    defs = (f'<defs><linearGradient id="brandBg" x1="0" y1="0" x2="1" y2="0.85">'
+            f'<stop offset="0" stop-color="{BG_TOP}"/>'
+            f'<stop offset="1" stop-color="{BG_BOTTOM}"/>'
+            f'</linearGradient></defs>')
+    body = defs + f'<rect width="{size}" height="{size}"{rx} fill="url(#brandBg)"/>'
+    for d, w in wave_svg_paths(size, mark_w=mark_w):
+        body += (f'<path d="{d}" fill="none" stroke="{stroke_color}" '
+                 f'stroke-width="{f(w)}" stroke-linecap="round"/>')
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
-            f'viewBox="0 0 {size} {size}">\n<path fill="#000000" '
-            f'fill-rule="nonzero" d="{d}"/>\n</svg>\n')
+            f'viewBox="0 0 {size} {size}">\n{body}\n</svg>\n')
 
 
-def build_mono_vector_drawable(size: int = 108, *, mark_w=None) -> str:
+def build_mono_svg(size: int, *, mark_w=1.0) -> str:
+    """单色剪影（模板图标：读屏状态栏 / Android 主题化图标）。"""
+    poly = ensure_cw(band_closed_poly(mark_w=mark_w, size=size))
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+            f'viewBox="0 0 {size} {size}">\n'
+            f'<path fill="#000000" fill-rule="nonzero" d="{path_of(poly, size)}"/>\n'
+            f'</svg>\n')
+
+
+def build_mono_vector_drawable(size: int = 108, *, mark_w=SAFE_MARK_W) -> str:
     """Android VectorDrawable 单色层（Android 13+ 主题图标）。"""
-    polys = mark_polygons(mark_w=mark_w)
-    d = " ".join(path_of(ensure_cw(poly), size) for poly in polys)
+    poly = ensure_cw(band_closed_poly(mark_w=mark_w, size=size))
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="{size}dp"
@@ -239,7 +206,7 @@ def build_mono_vector_drawable(size: int = 108, *, mark_w=None) -> str:
     android:viewportHeight="{size}">
     <path
         android:fillColor="#000000"
-        android:pathData="{d}" />
+        android:pathData="{path_of(poly, size)}" />
 </vector>
 '''
 
@@ -292,7 +259,6 @@ class Raster:
             return
         if not self.magick:
             sys.exit("缺少渲染工具：请安装 resvg（npm i @resvg/resvg-js）或 ImageMagick")
-        master = os.path.join(self.tmp, "master.png")
         svg_file = os.path.join(self.tmp, "master.svg")
         with open(svg_file, "w") as fh:
             fh.write(svg_text)
@@ -301,7 +267,6 @@ class Raster:
                         "-strip", out], check=True)
 
     def ico(self, pngs, out) -> None:
-        """把多个尺寸 PNG 合成多分辨率 .ico。"""
         if not self.magick:
             sys.exit("生成 .ico 需要 ImageMagick")
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -328,22 +293,21 @@ def write(path: str, text: str) -> None:
 
 
 def gen_android(r: Raster) -> None:
-    # 传统方形图标：底色本身是深海军蓝，明暗模式观感一致，故只有一套
+    # 传统方形图标：满幅（系统自行套蒙版）
     for dens, size in ANDROID_MIPMAPS.items():
         r.png(build_svg(size),
               p(f"android/app/src/main/res/mipmap-{dens}/ic_launcher.png"), size)
 
-    # 自适应图标前景：白色标记 + 透明底，底色由 drawable 渐变给出
-    adaptive_mw = round(fit_mark_w(33.0 / 108.0), 4)      # 中心 66dp 安全圆
-    print(f"  自适应前景 mark_w={adaptive_mw}（安全圆 66/108dp）")
+    # 自适应图标前景：透明底 + 缩到安全区的白色声波带，渐变底由 drawable 给出
     for dens, size in ANDROID_ADAPTIVE.items():
-        r.png(build_svg(size, gradient=False, bg=None, mark_w=adaptive_mw),
+        r.png(build_svg(size, mark_w=SAFE_MARK_W),
               p(f"android/app/src/main/res/mipmap-{dens}/ic_launcher_foreground.png"),
               size)
 
     write(p("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"),
           '''<?xml version="1.0" encoding="utf-8"?>
-<!-- 自适应图标（Android 8+）：渐变底 + 前景标记 + 单色层（Android 13+ 主题图标）。 -->
+<!-- 自适应图标（Android 8+）：渐变底 + 前景标记 + 单色层（Android 13+ 主题图标）。
+     前景已缩到中心安全区内，圆形 / 圆角蒙版不会裁掉声波两端。 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
@@ -352,21 +316,21 @@ def gen_android(r: Raster) -> None:
 ''')
     write(p("android/app/src/main/res/drawable/ic_launcher_background.xml"),
           f'''<?xml version="1.0" encoding="utf-8"?>
-<!-- 自适应图标底色：与位图图标同源的深海军蓝渐变（左上浅 → 右下深）。
-     angle=315 表示渐变方向指向左上，与 SVG 的 1,1 → 0,0 走向一致。 -->
+<!-- 自适应图标底色：与位图图标同源的渐变（左上深海军蓝 → 右下青绿）。
+     angle=315 表示渐变方向指向左上，与 SVG 的 0,0 → 1,0.85 走向一致。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
-        android:startColor="{BRAND_BG_BOTTOM}"
-        android:endColor="{BRAND_BG_TOP}"
+        android:startColor="{BG_BOTTOM}"
+        android:endColor="{BG_TOP}"
         android:angle="315" />
 </shape>
 ''')
     write(p("android/app/src/main/res/drawable/ic_launcher_monochrome.xml"),
-          build_mono_vector_drawable(mark_w=0.62))
+          build_mono_vector_drawable())
 
-    # 开屏 Logo：整枚图标（渐变底 + 白标），在明暗两种开屏背景上都成立
-    r.png(build_svg(256, mark_w=0.62),
+    # 开屏 Logo：整枚图标（渐变底 + 圆角），明暗开屏背景上都成立
+    r.png(build_svg(256, radius=SQUIRCLE_R),
           p("android/app/src/main/res/drawable-nodpi/launch_logo.png"), 256)
     print("  Android 图标完成")
 
@@ -380,16 +344,15 @@ def gen_ios(r: Raster) -> None:
         if not name:
             continue
         px = int(round(float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))))
-        # 去掉 alpha（App Store 审核要求）
-        r.png(build_svg(px), os.path.join(base, name), px, opaque=BRAND_BG_BOTTOM)
-    # 启动图：整枚图标居中（渐变底自身可见，无需依赖启动背景色）
+        # 满幅 + 去 alpha（App Store 审核要求；圆角由 iOS 自行套用）
+        r.png(build_svg(px), os.path.join(base, name), px, opaque=BG_BOTTOM)
+    # 启动图：整枚图标居中
     launch = p("ios/Runner/Assets.xcassets/LaunchImage.imageset")
     for name, scale in (("LaunchImage.png", 1), ("LaunchImage@2x.png", 2),
                         ("LaunchImage@3x.png", 3)):
-        pw, ph = 168 * scale, 185 * scale
-        icon = round(min(pw, ph) * 0.72)
-        svg = build_svg(icon, radius=0.22)
-        r.png(svg, os.path.join(launch, name), icon)
+        px = round(min(168 * scale, 185 * scale) * 0.72)
+        r.png(build_svg(px, radius=SQUIRCLE_R),
+              os.path.join(launch, name), px)
     print("  iOS 图标完成")
 
 
@@ -405,14 +368,13 @@ def gen_macos(r: Raster) -> None:
         r.png(build_svg(px), os.path.join(base, name), px)
     # 菜单栏模板图标：单色剪影（系统按明暗自动反色）
     write(p("macos/Runner/Assets.xcassets/StatusBarIcon.imageset/status_bar_icon.svg"),
-          build_mono_svg(18, mark_w=0.86))
+          build_mono_svg(18, mark_w=0.94))
     print("  macOS 图标完成")
 
 
 def gen_windows(r: Raster) -> None:
-    sizes = (16, 24, 32, 48, 64, 128, 256)
     tmp = []
-    for size in sizes:
+    for size in (16, 24, 32, 48, 64, 128, 256):
         out = os.path.join(r.tmp, f"win_{size}.png")
         r.png(build_svg(size), out, size)
         tmp.append(out)
@@ -421,26 +383,25 @@ def gen_windows(r: Raster) -> None:
 
 
 def gen_tray(r: Raster) -> None:
-    """托盘图标：整枚图标（含渐变底）。透明底白标在浅色任务栏上不可见，
-    故托盘统一用完整图标，深浅任务栏都能看清。"""
-    sizes = (16, 20, 24, 32, 48, 64, 128, 256)
+    """托盘图标：整枚图标（渐变底）。透明底白线在浅色任务栏上不可见，
+    故托盘统一用完整图标 + 圆角，深浅任务栏都清晰。"""
     tmp = []
-    for size in sizes:
+    for size in (16, 20, 24, 32, 48, 64, 128, 256):
         out = os.path.join(r.tmp, f"tray_{size}.png")
-        r.png(build_svg(size, radius=0.20 if size >= 32 else 0.0), out, size)
+        r.png(build_svg(size, radius=SQUIRCLE_R if size >= 24 else 0.0), out, size)
         tmp.append(out)
     r.ico(tmp, p("assets/icon/app_icon.ico"))
     print("  托盘图标完成")
 
 
 def gen_web(r: Raster) -> None:
-    r.png(build_svg(512), p("assets/icon/app_icon.png"), 512)
+    # 应用内展示位图带圆角，视觉上与图标一致
+    r.png(build_svg(512, radius=SQUIRCLE_R), p("assets/icon/app_icon.png"), 512)
+    # PWA 图标不带圆角（由系统 / 浏览器蒙版处理）
     r.png(build_svg(512), p("web/icons/Icon-512.png"), 512)
     r.png(build_svg(192), p("web/icons/Icon-192.png"), 192)
-    maskable_mw = round(fit_mark_w(0.40), 4)      # maskable 安全区半径 40%
-    print(f"  maskable 图标 mark_w={maskable_mw}（安全区半径 40%）")
     for size in (192, 512):
-        r.png(build_svg(size, mark_w=maskable_mw),
+        r.png(build_svg(size, mark_w=SAFE_MARK_W),
               p(f"web/icons/Icon-maskable-{size}.png"), size)
     r.png(build_svg(32), p("web/favicon.png"), 32)
     print("  Web / 应用内图标完成")
@@ -452,7 +413,7 @@ def main() -> None:
     args = ap.parse_args()
 
     write(p("assets/icon/app_icon.svg"), build_svg(1024))
-    write(p("assets/icon/app_icon_mono.svg"), build_mono_svg(512, mark_w=0.62))
+    write(p("assets/icon/app_icon_mono.svg"), build_mono_svg(512, mark_w=0.94))
     if args.svg_only:
         return
 
