@@ -72,13 +72,13 @@ jobs:
       - name: 拷贝 zip 到工作区根目录（避免 upload-artifact 保留目录前缀）
         shell: powershell
         run: |
-          Copy-Item -Path build/installer/FeiNiuMusic-v*-Windows.zip -Destination . -Force
+          Copy-Item -Path build/installer/Harken-v*-Windows.zip -Destination . -Force
       - name: 上传 Windows 产物
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: |
-            FeiNiuMusic-v*-Windows.zip
+            Harken-v*-Windows.zip
             pubspec.yaml
 
   build-android:
@@ -159,7 +159,7 @@ jobs:
       - run: |
           # 单 ABI（--target-platform android-arm64）产物名为 app-release.apk
           mv build/app/outputs/flutter-apk/app-release.apk \
-             FeiNiuMusic-v${VERSION}-Android-arm64-v8a.apk
+             Harken-v${VERSION}-Android-arm64-v8a.apk
       # 2) 汽水音乐兼容包（非官方）：applicationId 覆盖为 com.luna.music，仅 arm64。
       #    用于鸿蒙 4/6、iQOO、VIVO 的播控中心显示汽水音乐控制（见 README 声明）。
       #    media_kit 媒体库（否则包体会大 ~13MB）。
@@ -172,7 +172,7 @@ jobs:
       - run: |
           # 单 ABI 产物名为 app-release.apk（上一步已先搬走主包，这里覆盖生成的是 luna 包）
           mv build/app/outputs/flutter-apk/app-release.apk \
-             FeiNiuMusic-v${VERSION}-Android-z-luna-arm64-v8a.apk
+             Harken-v${VERSION}-Android-z-luna-arm64-v8a.apk
       # 3) 配套服务端增强应用 FPK：从 FnMusicEnhance 仓库拉取最新 release 产物。
       #    配套仓库尚无 release 时跳过（后续发布自然附带）。
       - name: Download companion FPK
@@ -206,11 +206,11 @@ jobs:
         with:
           name: android-build
           path: |
-            FeiNiuMusic-v*.apk
+            Harken-v*.apk
             FnMusicEnhance-*.fpk
             pubspec.yaml
 
-  # macOS：随 release 发布（绿色版 zip，内含 飞牛音乐.app）。
+  # macOS：随 release 发布（绿色版 zip，内含 Harken.app）。
   # 未做签名公证，用户首次打开需 右键 → 打开 绕过 Gatekeeper。
   build-macos:
     runs-on: macos-latest
@@ -245,24 +245,26 @@ jobs:
           flutter pub get
           flutter build macos --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           cd build/macos/Build/Products/Release
+          # 目录名仍是 PRODUCT_NAME=飞牛音乐（受 Xcode 工程约束），打包前统一改为 Harken
+          mv "Harken.app" "Harken.app"
           # 1) 绿色版 zip（便携，免安装；ditto 保留 .app 内符号链接）
-          ditto -c -k --sequesterRsrc --keepParent "飞牛音乐.app" \
-            "${GITHUB_WORKSPACE}/FeiNiuMusic-v${VERSION}-MacOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent "Harken.app" \
+            "${GITHUB_WORKSPACE}/Harken-v${VERSION}-MacOS.zip"
           # 2) 安装版 dmg（标准分发格式：挂载后拖入"应用程序"）
           STAGE="${GITHUB_WORKSPACE}/dmg-stage"
           rm -rf "$STAGE" && mkdir -p "$STAGE"
-          cp -R "飞牛音乐.app" "$STAGE/"
+          cp -R "Harken.app" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "FeiNiuMusic" -srcfolder "$STAGE" \
+          hdiutil create -volname "Harken" -srcfolder "$STAGE" \
             -ov -format UDZO \
-            "${GITHUB_WORKSPACE}/FeiNiuMusic-v${VERSION}-MacOS.dmg"
+            "${GITHUB_WORKSPACE}/Harken-v${VERSION}-MacOS.dmg"
       - name: 上传 macOS 产物
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
-            FeiNiuMusic-v*-MacOS.zip
-            FeiNiuMusic-v*-MacOS.dmg
+            Harken-v*-MacOS.zip
+            Harken-v*-MacOS.dmg
             pubspec.yaml
 
   # iOS：未签名 .ipa，供用户下载后自行签名安装（Sideloadly / AltStore /
@@ -307,12 +309,12 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app "$STAGE/Payload/"
           cd "$STAGE"
           ditto -c -k --sequesterRsrc --keepParent Payload \
-            "${GITHUB_WORKSPACE}/FeiNiuMusic-v${VERSION}-iOS-unsigned.ipa"
+            "${GITHUB_WORKSPACE}/Harken-v${VERSION}-iOS-unsigned.ipa"
       - name: 上传 iOS 产物
         uses: actions/upload-artifact@v4
         with:
           name: ios-build
-          path: FeiNiuMusic-v*-iOS-unsigned.ipa
+          path: Harken-v*-iOS-unsigned.ipa
 
   publish:
     runs-on: ubuntu-latest
@@ -340,7 +342,7 @@ jobs:
 
           ---
           **安装说明**
-          - **macOS**：打开 dmg 把 飞牛音乐.app 拖入"应用程序"，或解压 zip 后直接运行。
+          - **macOS**：打开 dmg 把 Harken.app 拖入"应用程序"，或解压 zip 后直接运行。
             未签名应用首次打开需 右键 → 打开 确认。
           - **iOS（未签名 ipa）**：需自行签名安装，可用 Sideloadly / AltStore / Xcode
             免费账号（免费签名 7 天过期需重新安装）。
@@ -371,11 +373,11 @@ jobs:
           name: v${{ env.VERSION }}
           body_path: release_notes.txt
           files: |
-            android-artifact/FeiNiuMusic-v*.apk
+            android-artifact/Harken-v*.apk
             android-artifact/FnMusicEnhance-*.fpk
-            windows-artifact/FeiNiuMusic-v*-Windows.zip
-            macos-artifact/FeiNiuMusic-v*-MacOS.dmg
-            macos-artifact/FeiNiuMusic-v*-MacOS.zip
-            ios-artifact/FeiNiuMusic-v*-iOS-unsigned.ipa
+            windows-artifact/Harken-v*-Windows.zip
+            macos-artifact/Harken-v*-MacOS.dmg
+            macos-artifact/Harken-v*-MacOS.zip
+            ios-artifact/Harken-v*-iOS-unsigned.ipa
 
 
