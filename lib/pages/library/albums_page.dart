@@ -385,6 +385,13 @@ class _AlbumsPageState extends State<AlbumsPage>
           key: cacheKey,
           jsonData: jsonEncode(groups.map((g) => g.toJson()).toList()),
         );
+      } catch (_) {
+        // 飞牛不可达：远端列表拿不到，也要把本地专辑展示出来
+        if (mounted) {
+          _groups.value = [];
+          _loading.value = false;
+        }
+        await _appendLocalAlbums();
       } finally {
         if (mounted) _isRefreshing.value = false;
       }
@@ -432,6 +439,8 @@ class _AlbumsPageState extends State<AlbumsPage>
       _isRefreshing.value = false;
       if (_groups.value.isEmpty) _groups.value = [];
       _loading.value = false;
+      // 飞牛不可达时也展示本地专辑
+      unawaited(_appendLocalAlbums());
     }
   }
 
