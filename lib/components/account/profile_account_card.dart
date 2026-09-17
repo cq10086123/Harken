@@ -18,9 +18,66 @@ class ProfileAccountCard extends StatelessWidget {
       valueListenable: AccountStore.instance.currentAccountId,
       builder: (context, accountId, _) {
         final account = AccountStore.instance.currentAccount;
-        if (account == null) return const SizedBox.shrink();
+        // 未登录：显示引导卡片，点击进入账号管理（添加新账号 = 登录）。
+        if (account == null) return const _ProfileLoginHintCard();
         return _ProfileAccountCardInner(account: account);
       },
+    );
+  }
+}
+
+/// 未登录时的引导卡片：本地音源无需账号，登录飞牛可选。
+class _ProfileLoginHintCard extends StatelessWidget {
+  const _ProfileLoginHintCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => Navigator.of(context).pushNamed(AppRoutes.accounts),
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
+          decoration: BoxDecoration(
+            color: theme.cardColor,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: scheme.primary.withValues(alpha: 0.16),
+                ),
+                child: Icon(Icons.person_outline, color: scheme.primary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('未登录飞牛账号',
+                        style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      '本地音源无需登录；点此登录后可播放在线曲库',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
