@@ -229,8 +229,8 @@ class _PlaylistsPageState extends State<PlaylistsPage>
           guid: id,
           name: row['name'] as String,
           trackCount: count,
-          createdAt: row['createdAtMs'] as int?,
-          updatedAt: null,
+          createdAt: (row['createdAtMs'] as int?) ?? 0,
+          updatedAt: 0,
         ));
       }
       _localPlaylists = converted;
