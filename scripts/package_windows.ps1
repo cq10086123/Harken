@@ -1,4 +1,4 @@
-﻿# 飞牛音乐 Windows 打包脚本（绿色版 zip）
+﻿# Harken Windows 打包脚本（绿色版 zip）
 #
 # 用法：
 #   .\scripts\package_windows.ps1            # 打包当前版本（自动读 pubspec 版本号）
@@ -6,7 +6,7 @@
 #   .\scripts\package_windows.ps1 -Build     # 先 flutter build windows --release 再打包
 #
 # 前置：默认要求已执行 flutter build windows --release（-Build 会自动构建）
-# 产物：build\installer\FeiNiuMusic-v<版本>-Windows.zip
+# 产物：build\installer\Harken-v<版本>-Windows.zip
 #
 # 数据持久化说明：App 数据（账号、收藏、听歌统计、缓存）存放在
 # %LOCALAPPDATA% 下，卸载/删除绿色版不会清掉，重装后数据仍在。
@@ -54,14 +54,17 @@ if ($Build) {
   }
 }
 
-if (-not (Test-Path (Join-Path $ReleaseDir "飞牛音乐.exe"))) {
-  Write-Error "未找到 飞牛音乐.exe，请先运行 flutter build windows --release 或用 -Build 参数"
+if (-not (Test-Path (Join-Path $ReleaseDir "harken.exe"))) {
+  Write-Error "未找到 harken.exe，请先运行 flutter build windows --release 或用 -Build 参数"
   exit 1
 }
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 # 组装临时发布目录（Release 内容 + 使用说明 + 应用图标）
+# 注意：产物名需与 .github/workflows/build-release.yml 中的
+#   Copy-Item build/installer/FeiNiuMusic-v*-Windows.zip 保持一致，
+# 改名必须连同工作流一起改（未同步会导致 CI 找不到产物）。
 $BundleName = "FeiNiuMusic-v$Version-Windows"
 $Stage = Join-Path $OutDir "_stage_$BundleName"
 if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
@@ -72,16 +75,16 @@ Copy-Item -Path (Join-Path $ReleaseDir "*") -Destination $Stage -Recurse -Force
 
 # 2. 使用说明
 $Readme = @"
-飞牛音乐 Windows 版 v$Version（免安装绿色版）
+Harken Windows 版 v$Version（免安装绿色版）
 
 使用方法：
-  1. 把整个文件夹解压到任意位置（如 D:\FeiNiuMusic）。
-  2. 双击 飞牛音乐.exe 即可运行。
-  3. 可选：右键 飞牛音乐.exe → 发送到 → 桌面快捷方式。
+  1. 把整个文件夹解压到任意位置（如 D:\Harken）。
+  2. 双击 harken.exe 即可运行。
+  3. 可选：右键 harken.exe → 发送到 → 桌面快捷方式。
 
 数据说明：
   - 账号、收藏、听歌统计、歌词/封面缓存等数据存放在 exe 同级的
-    feiniumusic_data/ 文件夹内，随绿色版一起移动。
+    harken_data/ 文件夹内，随绿色版一起移动。
   - 卸载只需删除整个文件夹，无残留注册表项。
   - 注意：把文件夹复制到其他电脑使用时会自动清除已保存的密码/token，
     需在新机器上重新登录（出于安全考虑）。

@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 绿色版分发时用户直接把整个文件夹拷到别的电脑运行，若数据仍留在系统
 /// `%APPDATA%` 反而会"拆散"；这里把数据根目录重定向到 exe 旁的
-/// `feiniumusic_data/`，让账号/收藏/播放记录跟着文件夹走。
+/// `harken_data/`，让账号/收藏/播放记录跟着文件夹走。
 ///
 /// 安全：数据里保存着 NAS 密码、token 等敏感凭据。复制到其他电脑使用前，
 /// 由 [AppPortableStorage.checkMachineOwner] 用 Windows `MachineGuid`
@@ -28,13 +28,13 @@ class AppPortableStorage {
 
   static String? _overrideRoot;
 
-  /// 便携数据根目录（Windows）：exe 同级的 `feiniumusic_data/`。
+  /// 便携数据根目录（Windows）：exe 同级的 `harken_data/`。
   /// 其他平台返回 null（沿用系统目录）。
   static String? portableRoot() {
     if (_overrideRoot != null) return _overrideRoot;
     if (Platform.isWindows) {
       final exeDir = File(Platform.resolvedExecutable).parent.path;
-      _overrideRoot = '$exeDir${Platform.pathSeparator}feiniumusic_data';
+      _overrideRoot = '$exeDir${Platform.pathSeparator}harken_data';
       return _overrideRoot;
     }
     return null;
@@ -43,7 +43,7 @@ class AppPortableStorage {
   /// 让所有 path_provider 数据路径指向便携根目录。
   ///
   /// 全局替换 [PathProviderPlatform.instance]，使 SharedPreferences、数据库、
-  /// 歌词/封面/音频缓存全部落到 exe 旁的 `feiniumusic_data/`。
+  /// 歌词/封面/音频缓存全部落到 exe 旁的 `harken_data/`。
   /// 仅在 Windows 桌面端生效；其余平台保持系统默认路径。
   static void overridePathProviderForPortable() {
     if (!Platform.isWindows) return;
@@ -126,7 +126,7 @@ class AppPortableStorage {
   }
 }
 
-/// 便携 PathProvider 实现：把 Windows 数据路径覆盖到 exe 旁 `feiniumusic_data/`。
+/// 便携 PathProvider 实现：把 Windows 数据路径覆盖到 exe 旁 `harken_data/`。
 ///
 /// 各数据子目录分离，避免"清临时缓存"误删 prefs/数据库：
 /// - `data/`  ← getApplicationSupportPath（prefs、歌词、插件等）

@@ -726,7 +726,7 @@ class _BackupTargetEditPageState extends State<BackupTargetEditPage> {
               ),
             ),
             const SizedBox(height: 8),
-            // 说明：实际备份会自动拼接到所选目录下的 FeiNiuMusicBackup 子目录
+            // 说明：实际备份会自动拼接到所选目录下的 HarkenBackup 子目录
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(

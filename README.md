@@ -1,8 +1,10 @@
-# FeiNiuMusic
+<div align="center">
+  <img src="开发文档/APP图标.png" width="112" alt="Harken" />
+  <h1>Harken</h1>
+  <p>飞牛私有云（fnOS）平台的第三方音乐客户端。通过飞牛 NAS 自带的音乐服务 API 获取音乐库、播放流和歌词数据，提供完整的在线音乐播放体验。</p>
+</div>
 
-飞牛私有云（FNOS）平台的第三方音乐客户端。通过飞牛 NAS 自带的音乐服务 API获取音乐库、播放流和歌词数据，提供完整的在线音乐播放体验。
-
-基于 [NagoMusic](https://github.com/Keduoli03/NagoMusic) 项目深度魔改适配。
+> 基于 [NagoMusic](https://github.com/Keduoli03/NagoMusic) 项目深度魔改适配。
 
 ## 功能
 
@@ -71,6 +73,23 @@
 - **TV 扫码登录** — 局域网配对 HTTP 服务 + 二维码扫码凭据自动登录
 - **听歌统计** — 记录播放时长与次数统计
 
+## 图标
+
+应用图标（牛角音符）由 `scripts/generate_icons.py` 从同一份矢量几何生成，
+覆盖 Android / iOS / macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
+
+```bash
+python3 scripts/generate_icons.py            # 重新生成全部平台图标
+python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
+```
+
+矢量源：`assets/icon/app_icon.svg`（彩色）、`assets/icon/app_icon_mono.svg`（单色剪影）。
+位图渲染优先使用 resvg（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），
+未安装时回落到 ImageMagick。
+
+> 注意：图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
+> monochrome 层）。修改图标请改 `scripts/generate_icons.py` 中的几何参数后重新运行。
+
 ## 与上游 NagoMusic 的差异
 
 - 从通用 WebDAV/本地播放器改造为飞牛 NAS 专属音乐客户端
@@ -78,6 +97,7 @@
 - 引入双播放器架构（系统解码 + FFmpeg 兜底），扩展无损格式支持
 - 新增 TV / 平板自适应布局与遥控器焦点导航
 - 净化和精简上游冗余代码，适配飞牛场景
+- 重绘全套品牌图标与启动画面，替换上游遗留 Logo（详见「图标」一节）
 
 ## 适用平台
 
@@ -86,7 +106,7 @@
 
 ## Android Auto 支持
 
-飞牛音乐通过 `audio_service` 注册系统 MediaSession / MediaBrowserService，
+Harken 通过 `audio_service` 注册系统 MediaSession / MediaBrowserService，
 支持在 Android Auto（手机投屏）与 Android Automotive OS（车机版）上显示和控制播放：
 
 - **启动器可见**：应用启动即注册媒体会话，Android Auto 启动器可直接发现本应用
@@ -98,7 +118,7 @@
 
 1. 手机安装本应用，并安装 Android Auto 应用
 2. 通过数据线连接支持 Android Auto 的车机（或使用 Android Auto 模拟器）
-3. 在车机启动器中选择「飞牛音乐」
+3. 在车机启动器中选择「Harken」
 
 ## 界面预览
 

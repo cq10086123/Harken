@@ -91,10 +91,10 @@ class AccountEntry {
     return serverUrl;
   }
 
-  /// 展示名称：优先备注，否则默认「飞牛音乐」
+  /// 展示名称：优先备注，否则默认「Harken」
   String get displayName {
     if (name.isNotEmpty) return name;
-    return '飞牛音乐';
+    return 'Harken';
   }
 
   bool get isLoggedIn => token.isNotEmpty;

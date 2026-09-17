@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This guide is for coding agents working in `feiniumusic` (Flutter/Dart).
+This guide is for coding agents working in `Harken` (Flutter/Dart).
 It documents the build/lint/test workflow and the code conventions used in this repo.
 
 ## 1) Project Snapshot
@@ -9,7 +9,7 @@ It documents the build/lint/test workflow and the code conventions used in this 
 - Primary target in docs/CI: Android.
 - Main source dirs: `lib/`, `test/`, platform folders (`android/`, `ios/`, `web/`, etc.).
 - Entry point: `lib/main.dart`.
-- App root widget: `FeiNiuMusicApp` in `lib/app/app.dart`.
+- App root widget: `HarkenApp` in `lib/app/app.dart`.
 - Lints: `flutter_lints` via `analysis_options.yaml`.
 
 ## 2) Setup Commands

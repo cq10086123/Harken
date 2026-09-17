@@ -43,7 +43,7 @@ Future<void> main() async {
   }
 
   WidgetsFlutterBinding.ensureInitialized();
-  // 便携模式：Windows 下把数据目录重定向到 exe 旁 `feiniumusic_data/`。
+  // 便携模式：Windows 下把数据目录重定向到 exe 旁 `harken_data/`。
   // 必须在任何 SharedPreferences / path_provider 读取之前替换全局实例，
   // 否则 prefs/数据库/缓存会落回系统 %APPDATA%。
   AppPortableStorage.overridePathProviderForPortable();
@@ -216,7 +216,7 @@ Future<void> main() async {
         AppGlassSettings.glassThickness,
       ]),
       builder: (context, _) => LiquidGlassWidgets.wrap(
-        child: const FeiNiuMusicApp(),
+        child: const HarkenApp(),
         brightnessResolver: Theme.maybeBrightnessOf,
         theme: appGlassTheme(
           AppThemeSettings.themeSeedColor.value ?? const Color(0xFF3B82F6),
