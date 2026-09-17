@@ -78,6 +78,22 @@ class MediaStoreScanner {
       results: entries,
     );
 
+    // 顺带收集目录里的图片（旁挂封面 folder.jpg 等），与 LocalScanner 行为一致。
+    // 缺了这一步，MediaStore 路线下 pickSidecarCover 永远拿不到图片名，
+    // 文件夹里的封面图会被无视。
+    await _collect(
+      RequestType.image,
+      prefixes,
+      isCancelled,
+      onAsset: (_) => null,
+      onImage: (file) {
+        final dir = normalizeLocalPath(file.parent.path);
+        (images[dir] ??= <String>[]).add(_basename(file.path));
+      },
+      seen: seen,
+      results: entries,
+    );
+
     return LocalScanResult(entries: entries, imagesByDirectory: images);
   }
 
