@@ -89,6 +89,19 @@ class SongDao {
     return list;
   }
 
+  /// 本地收藏歌曲（isLocal = 1 且 isFavorite = 1，未删除）。
+  /// 未登录飞牛时收藏页的数据源。
+  Future<List<SongEntity>> fetchFavoriteLocalSongs() async {
+    final db = await DbHelper.instance.database;
+    final rows = await db.query(
+      DbConstants.tableSongs,
+      where: 'isLocal = 1 AND isFavorite = 1 '
+          'AND COALESCE(isAudioFileDeleted, 0) = 0',
+      orderBy: 'title COLLATE NOCASE',
+    );
+    return rows.map(SongEntity.fromMap).toList();
+  }
+
   /// 本地音源歌曲（isLocal = 1，未标记删除）。本地库量级有限，直接全量取。
   /// 设置本地歌曲的收藏状态（飞牛歌的收藏走服务端，不经这里）。
   Future<int> setFavorite(String id, bool favorite) async {
