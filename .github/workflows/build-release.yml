@@ -246,7 +246,7 @@ jobs:
           flutter build macos --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           cd build/macos/Build/Products/Release
           # 目录名仍是 PRODUCT_NAME=飞牛音乐（受 Xcode 工程约束），打包前统一改为 Harken
-          mv "Harken.app" "Harken.app"
+          mv "飞牛音乐.app" "Harken.app"
           # 1) 绿色版 zip（便携，免安装；ditto 保留 .app 内符号链接）
           ditto -c -k --sequesterRsrc --keepParent "Harken.app" \
             "${GITHUB_WORKSPACE}/Harken-v${VERSION}-MacOS.zip"
@@ -379,5 +379,6 @@ jobs:
             macos-artifact/Harken-v*-MacOS.dmg
             macos-artifact/Harken-v*-MacOS.zip
             ios-artifact/Harken-v*-iOS-unsigned.ipa
+
 
 
