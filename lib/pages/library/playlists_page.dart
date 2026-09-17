@@ -50,7 +50,7 @@ class _PlaylistsPageState extends State<PlaylistsPage>
       GlobalKey<AppPageScaffoldState>();
 
   late final _loading = createSignal(true);
-  late final _playlists = createSignal<List<PlaylistRef>>([]);
+  late final _playlists = createSignal<List<FeiNiuPlaylist>>([]);
   late final _sortMode = createSignal('name');
   late final _ascending = createSignal(true);
   late final _isRefreshing = createSignal(false);
@@ -1796,7 +1796,7 @@ class _PlaylistPickerSheetState extends State<PlaylistPickerSheet>
     with SignalsMixin {
 
   late final _loading = createSignal(true);
-  late final _playlists = createSignal<List<FeiNiuPlaylist>>([]);
+  late final _playlists = createSignal<List<PlaylistRef>>([]);
 
   @override
   void initState() {
