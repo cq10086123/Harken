@@ -176,10 +176,6 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
 
   /// 按队列上限循环拉满该歌手的歌曲（供播放/随机按钮使用）。
   Future<List<SongEntity>> _fetchFilledSongs() async {
-    // 本地音源专辑：一次全量加载，无需翻页填充
-    if (widget.albumGuid == null) {
-      return List<SongEntity>.from(_songs.value);
-    }
     final full = List<SongEntity>.from(_songs.value);
     final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
     var page = 1;
@@ -682,6 +678,10 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
 
   /// 按队列上限循环拉满该专辑的歌曲（供播放/随机按钮使用）。
   Future<List<SongEntity>> _fetchFilledSongs() async {
+    // 本地音源专辑：一次全量加载，无需翻页填充
+    if (widget.albumGuid == null) {
+      return List<SongEntity>.from(_songs.value);
+    }
     final full = List<SongEntity>.from(_songs.value);
     final cap = AppPlaybackQueueSettings.maxQueueLength.value.clamp(10, 1000);
     var page = 1;
@@ -755,7 +755,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
     if (!mounted) return;
     if (widget.albumGuid == null) {
       try {
-        final all = await SongDao().fetchLocalSongs();
+        final all = await SongDao.instance.fetchLocalSongs();
         final matched = all.where((s) {
           if (widget.albumName == '未知专辑') {
             final n = s.albumName;
