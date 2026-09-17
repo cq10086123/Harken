@@ -258,6 +258,8 @@ class HarkenApp extends StatelessWidget {
                 );
               },
             );
+          },
+        );
       },
     );
   }
@@ -422,8 +424,6 @@ class _AppStartupGateState extends State<_AppStartupGate> {
                 );
               },
             );
-          },
-        );
       },
     );
   }
