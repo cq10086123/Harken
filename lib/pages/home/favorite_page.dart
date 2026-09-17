@@ -7,6 +7,7 @@ import '../../components/index.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/track_service.dart';
+import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
@@ -155,6 +156,20 @@ class _FavoritePageState extends State<FavoritePage>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
+    // 本地优先：未连接飞牛（未登录/离线）时，收藏页展示本地收藏
+    // （songs.isFavorite = 1），不调用服务端接口——否则 Dio 报
+    // No host specified，页面永远空白。
+    if (FeiNiuApiClient.instance.baseUrl.isEmpty) {
+      final locals = await SongDao.instance.fetchFavoriteLocalSongs();
+      if (!mounted) return;
+      _total = locals.length;
+      _hasMore = false;
+      _allSongs.value = locals;
+      _applyFilter();
+      _loading.value = false;
+      _isRefreshing.value = false;
+      return;
+    }
     // 分页后首屏只拿第 1 页。缓存 key 保持不变，新的分页数据会直接覆盖旧缓存。
     const cacheKey = 'all';
 
