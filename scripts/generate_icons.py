@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Harken 应用图标生成器（单一矢量源 → 全平台资源）。
 
-设计：**八分音符**，纯白压红底。
-刻意不做字母、不做声波、不做动物元素 —— 只留一个音乐符号，把重量和比例做到位。
+设计：**音符 + 声波尾**，纯白压红底。
+- 符头 + 符干 = 音乐；
+- 原本符尾的位置换成两道向右扩散的声波弧 = Harken 的本义「倾听」。
+一个形同时表达「音乐」与「聆听」，且不是随处可见的通用音符。
 
 比例依据（对标 Spotify / Apple Music / Deezer 一类一线音乐 App 图标）：
-- 笔画粗细 ≈ 画布 10.6%
-- 标记占画布宽度 66%，视觉重心居中
-- 只有 3 个形状（符头 + 符干 + 符尾），纯色、无渐变 / 辉光 / 投影
+- 笔画粗细 ≈ 画布 11.6%
+- 标记占画布宽度 62%，视觉重心居中
+- 只有 4 个形状（符头 + 符干 + 两道弧），纯色、无渐变 / 辉光 / 投影
 
 深浅两套：
 - 亮色：红底 #F02B3C + 白标
@@ -43,16 +45,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARK = dict(
     # ---- 音符 ----
     head_r=0.158,        # 符头半径（画布比例）
-    head_x=0.294,
-    head_y=0.742,
-    stem_w=0.112,        # 符干宽 = 画布 11.2%，一线音乐 App 图标的量级
-    stem_top=0.118,
-    # 符尾：上缘与符干顶端齐平，下缘收回符干内部（越界会长出毛刺）
-    flag_join=0.140,     # 符尾下缘回到符干处的纵向深度
-    flag_w=0.355,
-    flag_h=0.345,
+    head_x=0.244,
+    head_y=0.726,
+    stem_w=0.116,        # 符干宽 = 画布 11.6%，一线音乐 App 图标的量级
+    stem_top=0.238,
+    # ---- 声波弧（取代符尾）----
+    # 圆心落在符干右上角；半径由「等间隙」递推，保证两道弧的间隔与
+    # 第一道弧到符干的间隔一致（直接给半径会让首个间隙偏大，读不出递进）。
+    wave_first_r=0.132,
+    wave_gap=0.090,
+    wave_w=0.084,
+    wave_span=60.0,      # 弧的张开半角（度）
+    wave_count=2,
+    wave_dx=0.60,        # 圆心相对符干右缘的横向偏移（按符干宽归一）
+    wave_dy=0.34,
     # ---- 光学取景 ----
-    mark_w=0.66,         # 标记占画布宽度比例
+    mark_w=0.62,         # 标记占画布宽度比例
     mark_cy=0.5,
 )
 
@@ -114,12 +122,7 @@ def path_of(poly, px) -> str:
 # --------------------------------------------------------------------------
 
 def note_polygons(p, *, detail=1.0):
-    """八分音符：符头（圆）+ 符干（平顶圆角竖条）+ 符尾（翅膀形）。
-
-    符尾是一枚闭合多边形：上缘从符干内部出发向外下扫，下缘再收回符干内部。
-    起点/终点都落在符干轮廓之内，所以接缝处不会出现缺口或毛刺 —— 这是
-    反复调参后唯一稳定的做法（用两条带圆头的粗线相接一定会留缺口）。
-    """
+    """音符 + 声波：符头（圆）+ 符干（平顶圆角竖条）+ 两道同心声波弧。"""
     hr, hx, hy = p["head_r"], p["head_x"], p["head_y"]
     sw, top = p["stem_w"], p["stem_top"]
     sx = hx + hr * 0.40                    # 符干左缘：与符头四分之三处相切
@@ -128,18 +131,29 @@ def note_polygons(p, *, detail=1.0):
     polys = [circle_pts(hx, hy, hr, n=max(64, int(200 * detail))),
              rrect(sx, top, sx + sw, hy, sw * 0.34)]
 
-    a = sx + sw * 0.58                     # 符尾起点：符干内部
-    fw, fh, j = p["flag_w"], p["flag_h"], p["flag_join"]
-    outer = bez((a, top),
-                (a + fw * 0.60, top + 0.010),
-                (a + fw * 0.99, top + fh * 0.50),
-                (a + fw * 0.95, top + fh), n=n)
-    inner = bez((a + fw * 0.95, top + fh),
-                (a + fw * 0.86, top + fh * 0.54),
-                (a + fw * 0.36, top + j * 0.70),
-                (sx + sw * 0.42, top + j), n=n)   # 收回符干内部
-    polys.append(outer + inner)
+    cx = sx + sw * p["wave_dx"]
+    cy = top + sw * p["wave_dy"]
+    r = p["wave_first_r"]
+    for _ in range(p["wave_count"]):
+        polys.append(arc_band(cx, cy, r, p["wave_w"],
+                              -p["wave_span"], p["wave_span"], n=max(30, int(90 * detail))))
+        r += p["wave_gap"] + p["wave_w"]
     return polys
+
+
+def arc_band(cx, cy, r, w, a0, a1, n=90):
+    """圆弧带：外弧去 + 内弧回，得到有粗细的弧线。
+
+    y 轴向下，故角度 90° 指向下方。弧的开口方向由 a0→a1 的走向决定。
+    """
+    ro, ri = r + w / 2, r - w / 2
+    return (arcpts(cx, cy, ro, a0, a1, n) + arcpts(cx, cy, ri, a1, a0, n))
+
+
+def arcpts(cx, cy, r, a0, a1, n=24):
+    return [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
+             cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / n)))
+            for i in range(n + 1)]
 
 
 def circle_pts(cx, cy, r, n=200):
