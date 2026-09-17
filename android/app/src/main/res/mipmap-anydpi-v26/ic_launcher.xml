@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标（Android 8+）：背景层是深色底 + 暖光，前景层是缩到中心安全区
+     的唱片，另有单色层供 Android 13+ 主题图标。前景只放唱片本体，不含音符与
+     星芒 —— 它们超出安全区，会被圆形蒙版切掉。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

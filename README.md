@@ -1,8 +1,10 @@
-# FeiNiuMusic
+<div align="center">
+  <img src="开发文档/APP图标.png" width="112" alt="Harken" />
+  <h1>Harken</h1>
+  <p>飞牛私有云（fnOS）平台的第三方音乐客户端。通过飞牛 NAS 自带的音乐服务 API 获取音乐库、播放流和歌词数据，提供完整的在线音乐播放体验。</p>
+</div>
 
-飞牛私有云（FNOS）平台的第三方音乐客户端。通过飞牛 NAS 自带的音乐服务 API获取音乐库、播放流和歌词数据，提供完整的在线音乐播放体验。
-
-基于 [NagoMusic](https://github.com/Keduoli03/NagoMusic) 项目深度魔改适配。
+> 基于 [NagoMusic](https://github.com/Keduoli03/NagoMusic) 项目深度魔改适配。
 
 ## 功能
 
@@ -71,6 +73,80 @@
 - **TV 扫码登录** — 局域网配对 HTTP 服务 + 二维码扫码凭据自动登录
 - **听歌统计** — 记录播放时长与次数统计
 
+## 图标
+
+应用图标为 **黑胶唱片**：
+
+- 深色圆角底 + 背后一圈暖光；
+- 居中一张黑胶：同心纹路、上缘金色高光、中心橙金渐变标签；
+- 标签上压白色 **Harken** 字样；
+- 四周飘着金色音符与星芒。
+
+### 按尺寸分级
+
+图标里的细节缩小时不是「变小」而是「变脏」：26 个像素宽的地方塞不下六个字母，
+只会得到一道白杠。所以生成器按输出尺寸决定画什么：
+
+| 输出尺寸 | 字样 | 音符 | 星芒 | 纹路数 | 对比增强 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| ≥ 256px | ✓ | 3 | 6 | 16 | — |
+| ≥ 128px | ✓ | 3 | 3 | 12 | — |
+| ≥ 96px | — | 2 | — | 9 | — |
+| ≥ 64px | — | — | — | 6 | — |
+| ≥ 32px | — | — | — | 5 | ✓ |
+| < 32px | — | — | — | 3 | ✓ |
+
+- **≥128px 才画「Harken」** —— 字号约画布 5%，再小就低于可辨认极限；
+- **<64px 只留「一张黑胶」** —— 这时用户看到的是「深色底 + 橙色标签」，
+  信息量降到最低但特征还在；
+- **<32px 额外拉对比** —— 黑胶的黑和背景的黑会糊成一块，故把盘面调亮、
+  金边加粗，让轮廓读得出来。
+
+### 三处实现要点
+
+1. **图形与底分离** —— 唱片本体是独立一层。Android 自适应图标把「底色 + 暖光」
+   放背景层、把唱片缩到 80% 放前景层，圆形蒙版不会切到内容（前景里不含音符与
+   星芒，它们在安全区外）。
+2. **字样用轮廓** —— 「Harken」是字体轮廓常量，生成时不加载字体，任何机器结果
+   一致。换字体或改文案：`python3 scripts/font_outline.py "Harken"`，把输出替换进
+   `generate_icons.py` 的 `WORDMARK`。现用字形来自 DejaVu Sans Bold。
+3. **单色剪影用负形** —— 菜单栏 / Android 13+ 主题图标要单色。用三个同心圆按
+   `evenodd` 叠加一次成型：盘面实心、标签外一圈镂空、标签与中心孔实心。
+
+图标由 `scripts/generate_icons.py` 从同一份矢量几何生成，覆盖 Android / iOS /
+macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
+
+```bash
+python3 scripts/generate_icons.py             # 重新生成全部平台图标
+python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
+```
+
+矢量源：`assets/icon/app_icon.svg`（彩色）、`assets/icon/app_icon_mono.svg`（单色剪影）。
+位图渲染优先使用 resvg（`npm i @resvg/resvg-js`，逐尺寸直出、小尺寸更锐利），
+未安装时回落到 ImageMagick。
+
+### 关于明暗两套
+
+图标底色本身是深色，在浅色与深色系统下观感一致，因此**只有一套资源**，
+不需要按 `uiMode` 切换（早期红/黑两版曾用 `mipmap-night-*` 与
+`prefers-color-scheme` 做过双套，现已移除）。
+
+### 各平台落点
+
+| 位置 | 处理 |
+| :--- | :--- |
+| Android 方形图标 | 满幅（系统套蒙版） |
+| Android 自适应图标 | 背景层为「底色 + 暖光」位图，前景层为缩到中心安全区的唱片；另有单色层供 Android 13+ 主题图标 |
+| Android 开屏 | 整枚图标（圆角），明暗开屏背景上都成立 |
+| iOS / macOS | 全尺寸 AppIcon（满幅、无 alpha）；启动图为整枚图标居中 |
+| macOS 菜单栏 | 单色剪影（系统按明暗自动反色） |
+| Windows / 托盘 | 多分辨率 `.ico`；托盘用完整图标，避免浅色任务栏上看不见 |
+| Web | 512 / 192 图标、maskable 版本（留安全区）、favicon（32px，已开对比增强） |
+
+> 注意：图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
+> monochrome 层）。修改图标请改 `scripts/generate_icons.py` 的 `DISC_R` / `LABEL_R` /
+> `TIERS` 等参数后重新运行。
+
 ## 与上游 NagoMusic 的差异
 
 - 从通用 WebDAV/本地播放器改造为飞牛 NAS 专属音乐客户端
@@ -78,6 +154,7 @@
 - 引入双播放器架构（系统解码 + FFmpeg 兜底），扩展无损格式支持
 - 新增 TV / 平板自适应布局与遥控器焦点导航
 - 净化和精简上游冗余代码，适配飞牛场景
+- 重绘全套品牌图标与启动画面，替换上游遗留 Logo（详见「图标」一节）
 
 ## 适用平台
 
@@ -86,7 +163,7 @@
 
 ## Android Auto 支持
 
-飞牛音乐通过 `audio_service` 注册系统 MediaSession / MediaBrowserService，
+Harken 通过 `audio_service` 注册系统 MediaSession / MediaBrowserService，
 支持在 Android Auto（手机投屏）与 Android Automotive OS（车机版）上显示和控制播放：
 
 - **启动器可见**：应用启动即注册媒体会话，Android Auto 启动器可直接发现本应用
@@ -98,7 +175,7 @@
 
 1. 手机安装本应用，并安装 Android Auto 应用
 2. 通过数据线连接支持 Android Auto 的车机（或使用 Android Auto 模拟器）
-3. 在车机启动器中选择「飞牛音乐」
+3. 在车机启动器中选择「Harken」
 
 ## 界面预览
 

@@ -157,7 +157,7 @@ class _StartupProbeScreenState extends State<StartupProbeScreen>
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      '飞牛音乐',
+                      'Harken',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),

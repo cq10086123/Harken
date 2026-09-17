@@ -22,8 +22,8 @@ import 'theme/app_visual_theme.dart';
 import 'utils/app_navigator.dart';
 import 'utils/route_visibility.dart';
 
-class FeiNiuMusicApp extends StatelessWidget {
-  const FeiNiuMusicApp({super.key});
+class HarkenApp extends StatelessWidget {
+  const HarkenApp({super.key});
 
   ThemeData _applyDynamic(
     ThemeData base,
@@ -190,7 +190,7 @@ class FeiNiuMusicApp extends StatelessWidget {
                         return _TvOrientationSync(
                           tv: isTv,
                           child: MaterialApp(
-                          title: '飞牛音乐',
+                          title: 'Harken',
                           navigatorKey: appNavigatorKey,
                           theme: lightTheme,
                           darkTheme: darkTheme,

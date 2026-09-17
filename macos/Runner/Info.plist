@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>飞牛音乐</string>
+	<string>Harken</string>
 	<key>FLTEnableImpeller</key>
 	<true/>
 	<key>CFBundleExecutable</key>
@@ -17,7 +17,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<!-- 菜单栏 / 关于本机显示的应用名。PRODUCT_NAME 受 CI 打包流程约束仍为
+	     「飞牛音乐」（决定 .app 目录名），用字面值覆盖以保证用户可见名为 Harken。 -->
+	<string>Harken</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

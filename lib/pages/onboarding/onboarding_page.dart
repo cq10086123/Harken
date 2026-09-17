@@ -239,7 +239,7 @@ class _WelcomePage extends StatelessWidget {
         ),
         const SizedBox(height: 28),
         Text(
-          '欢迎使用飞牛音乐',
+          '欢迎使用 Harken',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 26,

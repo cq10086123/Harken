@@ -23,9 +23,9 @@ class AppUpdateService {
   static final AppUpdateService instance = AppUpdateService._();
 
   static const String releasePageUrl =
-      'https://github.com/kuilei0926/FeiNiuMusic/releases/latest';
+      'https://github.com/cq10086123/Harken/releases/latest';
   static const String latestReleaseApiUrl =
-      'https://api.github.com/repos/kuilei0926/FeiNiuMusic/releases/latest';
+      'https://api.github.com/repos/cq10086123/Harken/releases/latest';
 
   final Dio _dio = Dio(
     BaseOptions(
@@ -60,7 +60,7 @@ class AppUpdateService {
         options: Options(
           headers: {
             'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'FeiNiuMusic',
+            'User-Agent': 'Harken',
           },
         ),
       );

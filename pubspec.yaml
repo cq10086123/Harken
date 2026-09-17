@@ -1,5 +1,5 @@
 name: feiniu_music
-description: "飞牛音乐客户端"
+description: "Harken — 飞牛私有云（fnOS）音乐客户端"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
@@ -145,6 +145,11 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
+# ⚠️ 图标请勿用 flutter_launcher_icons 生成：它不支持 Android 13 主题图标
+# （monochrome 层）与 Android 8+ 自适应图标的安全区计算，直接运行会把
+# mipmap-anydpi-v26/ic_launcher.xml 一并覆盖掉。
+# 图标统一由 scripts/generate_icons.py 从矢量几何生成全部平台资源。
+# 下面这段配置仅作为历史参考保留。
 flutter_launcher_icons:
   android: true
   ios: true

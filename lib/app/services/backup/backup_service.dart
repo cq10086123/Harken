@@ -50,7 +50,7 @@ class BackupService {
   static final BackupService instance = BackupService._();
 
   static const int formatVersion = 1;
-  static const String webDavFolder = 'FeiNiuMusicBackup';
+  static const String webDavFolder = 'HarkenBackup';
 
   /// 备份目录默认基础路径：用户选择/填写的目录之后会自动拼接 [webDavFolder]。
   static const String defaultBasePath = '/';
@@ -167,7 +167,7 @@ class BackupService {
       throw const FormatException('备份文件格式无效');
     }
     if (data['format'] == null || data['app'] != 'feiniu_music') {
-      throw const FormatException('不是有效的飞牛音乐备份文件');
+      throw const FormatException('不是有效的 Harken 备份文件');
     }
 
     final applied = <String>[];
@@ -393,9 +393,9 @@ class BackupService {
     return base.isEmpty ? '/' : base;
   }
 
-  /// 实际备份目录 = 用户选择/填写的基础目录 + `/FeiNiuMusicBackup`。
+  /// 实际备份目录 = 用户选择/填写的基础目录 + `/HarkenBackup`。
   ///
-  /// 用户填 `/NAS/music`，备份文件统一落到 `/NAS/music/FeiNiuMusicBackup`，
+  /// 用户填 `/NAS/music`，备份文件统一落到 `/NAS/music/HarkenBackup`，
   /// 不会把备份文件散落在所选目录里。
   String _backupDir(String basePath) {
     final base = _normalizeDir(basePath);

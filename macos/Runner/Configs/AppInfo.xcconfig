@@ -5,10 +5,13 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
+// 注意：PRODUCT_NAME 同时决定 .app 目录名，而 CI（.github/workflows/build-release.yml）
+// 的 macOS 打包步骤按 "飞牛音乐.app" 取包，故此处暂不改名；用户可见的应用名由
+// Info.plist 的 CFBundleDisplayName / CFBundleName 覆盖为 Harken。
 PRODUCT_NAME = 飞牛音乐
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.feiniu.music
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.lanke. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Harken. All rights reserved.

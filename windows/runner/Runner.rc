@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "com.feiniu.music" "\0"
-            VALUE "FileDescription", "飞牛音乐" "\0"
+            VALUE "FileDescription", "Harken" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "飞牛音乐" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.lanke. All rights reserved." "\0"
-            VALUE "OriginalFilename", "飞牛音乐.exe" "\0"
-            VALUE "ProductName", "飞牛音乐" "\0"
+            VALUE "InternalName", "Harken" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Harken. All rights reserved." "\0"
+            VALUE "OriginalFilename", "harken.exe" "\0"
+            VALUE "ProductName", "Harken" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
