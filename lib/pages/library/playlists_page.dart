@@ -15,7 +15,9 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/playlist_service.dart';
+import '../../app/services/db/dao/playlist_dao.dart';
 import '../../app/services/source/playlist_router.dart';
+import 'local_playlist_detail_page.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/song_match/backend_match_client.dart';
 import '../../app/services/player_service.dart';
@@ -209,6 +211,31 @@ class _PlaylistsPageState extends State<PlaylistsPage>
     }
     _sortMode.value = mode;
     _ascending.value = asc;
+    await _loadLocalPlaylists();
+  }
+
+  /// 本地歌单缓存：_applySortFromBase 并入展示列表。
+  List<FeiNiuPlaylist> _localPlaylists = [];
+
+  Future<void> _loadLocalPlaylists() async {
+    try {
+      final locals = await PlaylistDao.instance.listLocalPlaylists();
+      final converted = <FeiNiuPlaylist>[];
+      for (final row in locals) {
+        final id = row['id'] as String;
+        final count =
+            await PlaylistDao.instance.localPlaylistSongCount(id);
+        converted.add(FeiNiuPlaylist(
+          guid: id,
+          name: row['name'] as String,
+          trackCount: count,
+          createdAt: row['createdAtMs'] as int?,
+        ));
+      }
+      _localPlaylists = converted;
+    } catch (_) {
+      _localPlaylists = [];
+    }
   }
 
   Future<void> _savePrefs() async {
@@ -304,6 +331,12 @@ class _PlaylistsPageState extends State<PlaylistsPage>
 
   void _applySortFromBase() {
     final playlists = List<FeiNiuPlaylist>.from(_allPlaylists);
+    // 并入本地歌单（服务端列表已有的 guid 跳过，避免重名重复）
+    final serverIds = playlists.map((p) => p.guid).toSet();
+    playlists.insertAll(
+      0,
+      _localPlaylists.where((lp) => !serverIds.contains(lp.guid)),
+    );
 
     if (_sortMode.value == 'custom') {
       _playlists.value = playlists;
@@ -382,6 +415,15 @@ class _PlaylistsPageState extends State<PlaylistsPage>
       fallbackName: '新建歌单',
       onCoverUploaded: (id) => coverId = id,
       onSubmit: (name) async {
+        // 未连接飞牛（未登录/离线）时创建本地歌单，保证功能可用。
+        if (FeiNiuApiClient.instance.baseUrl.isEmpty) {
+          await PlaylistDao.instance.createLocalPlaylist(name);
+          if (!mounted) return;
+          AppToast.show(context, '已创建本地歌单');
+          await _loadLocalPlaylists();
+          _applySortFromBase();
+          return;
+        }
         await _service.createPlaylist(name, coverId: coverId);
         if (!mounted) return;
         AppToast.show(context, '已创建歌单');
@@ -769,10 +811,16 @@ class _PlaylistsPageState extends State<PlaylistsPage>
                                       onTap: () async {
                                         await Navigator.of(context).push(
                                           buildAppPageRoute(
-                                            (_) => PlaylistDetailPage(
-                                              playlistId: p.guid,
-                                              playlistName: p.name,
-                                            ),
+                                            (_) => p.guid
+                                                    .startsWith('local-pl-')
+                                                ? LocalPlaylistDetailPage(
+                                                    playlistId: p.guid,
+                                                    playlistName: p.name,
+                                                  )
+                                                : PlaylistDetailPage(
+                                                    playlistId: p.guid,
+                                                    playlistName: p.name,
+                                                  ),
                                           ),
                                         );
                                         if (!mounted) return;
