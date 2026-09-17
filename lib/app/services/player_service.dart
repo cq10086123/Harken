@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_session/audio_session.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
@@ -15,6 +14,7 @@ import 'package:signals/signals.dart';
 import 'db/dao/song_dao.dart';
 import 'audio/stream_cache_service.dart';
 import 'cast/dlna_cast_service.dart';
+import 'cover_image_provider.dart';
 import 'feiniu/api_client.dart';
 import 'feiniu/api_models.dart';
 import 'feiniu/auth_service.dart';
@@ -26,6 +26,7 @@ import 'player/just_audio_engine.dart';
 import 'player/media_kit_engine.dart';
 import 'player/playback_router.dart';
 import 'player/player_engine.dart';
+import 'source/song_stream_dispatch.dart';
 import 'stats_service.dart';
 import 'listening_recorder_service.dart';
 import 'volume_schedule_service.dart';
@@ -1489,25 +1490,15 @@ class PlayerService with WidgetsBindingObserver {
     // 提前解析下一首歌的播放 URL，使 HTTP 连接就绪，切歌时无缝衔接
     await _warmupSource(song);
 
-    // 预加载下一首歌的 800px 封面图，切歌时封面立显
-    if (song.coverId != null && song.coverId!.isNotEmpty) {
+    // 预加载下一首歌的封面，切歌时封面立显。
+    // 取图源交给 coverImageProviderFor：飞牛走网络、本地走落盘文件。
+    final nextCoverProvider = coverImageProviderFor(song);
+    if (nextCoverProvider != null) {
       // 恢复播放/初始化窗口内根元素可能尚未挂载（rootElement 为 null），
       // 封面预热尽力而为：挂载后才调用，否则跳过。
       final root = WidgetsBinding.instance.rootElement;
       if (root != null) {
-        unawaited(
-          precacheImage(
-            CachedNetworkImageProvider(
-              FeiNiuApiClient.instance.coverUrl(
-                song.coverId!,
-                size: FeiNiuApiClient.coverRequestSize,
-                updatedAt: song.updatedAt,
-              ),
-              headers: FeiNiuApiClient.imageAuthHeaders(),
-            ),
-            root,
-          ),
-        );
+        unawaited(precacheImage(nextCoverProvider, root));
       }
     }
   }
@@ -3212,27 +3203,16 @@ class PlayerService with WidgetsBindingObserver {
         : null;
     isPlaying.value = false;
     _emitSnapshot(force: true);
-    // 预热当前曲 800px 封面：恢复播放进播放页时封面立显，不闪转圈。
+    // 预热当前曲封面：恢复播放进播放页时封面立显，不闪转圈。
     // 磁盘已有缓存 → 秒显；无缓存 → 提前下载（与 _prefetchUpcoming 同路径）。
-    if (song.coverId != null && song.coverId!.isNotEmpty) {
+    final resumeCoverProvider = coverImageProviderFor(song);
+    if (resumeCoverProvider != null) {
       // 恢复流程在 _init（构造后立即触发）的同步段执行，此时根元素可能尚未
       // 挂载（rootElement 为 null）。封面预热尽力而为：挂载后才调用，
       // 否则跳过——封面会在播放页构建时正常加载。
       final root = WidgetsBinding.instance.rootElement;
       if (root != null) {
-        unawaited(
-          precacheImage(
-            CachedNetworkImageProvider(
-              FeiNiuApiClient.instance.coverUrl(
-                song.coverId!,
-                size: FeiNiuApiClient.coverRequestSize,
-                updatedAt: song.updatedAt,
-              ),
-              headers: FeiNiuApiClient.imageAuthHeaders(),
-            ),
-            root,
-          ),
-        );
+        unawaited(precacheImage(resumeCoverProvider, root));
       }
     }
   }
@@ -3836,24 +3816,16 @@ class PlayerService with WidgetsBindingObserver {
       if (songChanged && StreamCacheService.instance.isEnabled) {
         unawaited(_precacheNextChained(song, list, idx));
       }
-      if (songChanged && song.coverId != null && song.coverId!.isNotEmpty) {
+      // 只在真的换了歌时预热；coverImageProviderFor 内部区分网络/本地封面。
+      final changedCoverProvider = songChanged
+          ? coverImageProviderFor(song)
+          : null;
+      if (changedCoverProvider != null) {
         // 引擎 song-changed 事件可能在恢复播放/初始化窗口内到达，此时根元素
         // 可能尚未挂载（rootElement 为 null）。封面预热尽力而为，跳过即可。
         final root = WidgetsBinding.instance.rootElement;
         if (root != null) {
-          unawaited(
-            precacheImage(
-              CachedNetworkImageProvider(
-                FeiNiuApiClient.instance.coverUrl(
-                  song.coverId!,
-                  size: FeiNiuApiClient.coverRequestSize,
-                  updatedAt: song.updatedAt,
-                ),
-                headers: FeiNiuApiClient.imageAuthHeaders(),
-              ),
-              root,
-            ),
-          );
+          unawaited(precacheImage(changedCoverProvider, root));
         }
       }
     } else {
@@ -3983,18 +3955,21 @@ class PlayerService with WidgetsBindingObserver {
     int? fileSize,
     String? format,
   }) async {
-    final next = SongEntity(
-      id: song.id,
-      title: title ?? song.title,
-      artist: artist ?? song.artist,
-      album: album ?? song.album,
-      uri: song.uri,
-      headersJson: song.headersJson,
-      durationMs: durationMs ?? song.durationMs,
-      bitrate: bitrate ?? song.bitrate,
-      sampleRate: sampleRate ?? song.sampleRate,
-      fileSize: fileSize ?? song.fileSize,
-      format: format ?? song.format,
+    // 用 copyWith 而不是逐字段重建：重建会静默丢掉未列出的列
+    // （isLocal / sourceId / codec / coverId / audioSpec / isCue / cueOffsetMs /
+    // updatedAt / isAudioFileDeleted …），元数据编辑一次就把它们清零——
+    // 多音源下最直接的后果是本地歌改完标题就不再是本地歌，取源分派随即
+    // 走错到飞牛远端。copyWith 对未传字段一律保留原值，语义与上面的
+    // `x ?? song.x` 一致。
+    final next = song.copyWith(
+      title: title,
+      artist: artist,
+      album: album,
+      durationMs: durationMs,
+      bitrate: bitrate,
+      sampleRate: sampleRate,
+      fileSize: fileSize,
+      format: format,
     );
 
     await _songDao.upsertSongs([next]);
@@ -4023,7 +3998,13 @@ class PlayerService with WidgetsBindingObserver {
     bool forceRefresh = false,
   }) async {
     final api = FeiNiuApiClient.instance;
-    if (api.baseUrl.isNotEmpty) {
+    // 按「歌归属哪个音源」分派，而不是按「飞牛当前是否已连接」这个全局开关。
+    //
+    // 旧逻辑是 `if (api.baseUrl.isNotEmpty) { …飞牛全链路… }`：只要配了飞牛
+    // 服务器，**所有**歌都被当云端处理，本地文件反而播不了（飞牛与本地互斥）。
+    // 现在本地音源的歌直接落到函数末尾的 `AudioSource.file(rawUri)`，
+    // 缓存 / 服务端转码 / CUE 裁剪 / Cookie 这些只对飞牛有意义的路径全部跳过。
+    if (isFeiniuRemoteSong(song) && api.baseUrl.isNotEmpty) {
       // 播放出错重试时删除损坏/过期的缓存，强制走远端
       if (forceRefresh) {
         await StreamCacheService.instance.invalidate(song.id);

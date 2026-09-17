@@ -10,6 +10,7 @@ import '../../app/services/feiniu/favorite_service.dart';
 import '../../app/services/feiniu/transcode_service.dart';
 import '../../app/services/player/player_engine.dart';
 import '../../app/services/player_service.dart';
+import '../../app/services/source/song_stream_dispatch.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
 import '../../components/common/app_list_tile.dart';
@@ -253,7 +254,11 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
               title: '下一首播放',
               onTap: () async {
                 final api = FeiNiuApiClient.instance;
-                final streamUrl = api.baseUrl.isNotEmpty
+                // 只有飞牛歌才需要把 uri 重写成流地址；本地/文件类音源的歌
+                // 必须原样保留文件路径，否则一旦配了飞牛服务器，本地歌的 uri
+                // 会被换成一个不存在的飞牛地址，「下一首播放」直接失效。
+                final streamUrl =
+                    (isFeiniuRemoteSong(song) && api.baseUrl.isNotEmpty)
                     ? '${api.baseUrl}/music/api/v1/track/stream?guid=${song.id}'
                     : song.uri;
                 final playable = song.copyWith(uri: streamUrl ?? '');
