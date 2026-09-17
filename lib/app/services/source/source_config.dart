@@ -350,7 +350,11 @@ String normalizeWebDavEndpoint(String raw) {
   while (path.length > 1 && path.endsWith('/')) {
     path = path.substring(0, path.length - 1);
   }
-  final port = uri.hasPort && !uri.isDefaultPort ? ':${uri.port}' : '';
+  // Dart 的 Uri 没有 isDefaultPort，手写默认端口判断（http:80 / https:443）
+  final isDefaultPort = uri.port == 0 ||
+      (uri.scheme == 'https' && uri.port == 443) ||
+      (uri.scheme == 'http' && uri.port == 80);
+  final port = uri.hasPort && !isDefaultPort ? ':${uri.port}' : '';
   return '${uri.scheme}://${uri.host}$port$path';
 }
 
