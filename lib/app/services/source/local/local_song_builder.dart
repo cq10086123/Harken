@@ -27,6 +27,17 @@ class LocalSongBuilder {
   /// 本地歌的专辑 guid 前缀。
   static const String albumGuidPrefix = 'local-album:';
 
+  /// 文件所在文件夹名（无专辑标签时的专辑名回退）。
+  static String? _folderNameOf(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final sep = normalized.lastIndexOf('/');
+    if (sep <= 0) return null;
+    final dir = normalized.substring(0, sep);
+    if (dir.isEmpty || dir.endsWith(':')) return null;
+    final name = dir.substring(dir.lastIndexOf('/') + 1);
+    return name.isEmpty ? null : name;
+  }
+
   /// 编码 artist 列。`SongEntity.artist` 的约定格式是
   /// `[{"guid":"...","name":"..."}]`（见 `song_state.dart:6`）。
   ///
@@ -63,6 +74,9 @@ class LocalSongBuilder {
   static bool shouldReprobe(SongEntity? existing, LocalScanEntry entry) {
     if (existing == null) return true;
     if (!existing.tagsParsed) return true;
+    // 旧版扫描没有「文件夹名当专辑名」的回退，存量行专辑可能为空。
+    // 专辑为空就重读一次：重读后至少拿到文件夹名，不会反复触发。
+    if (existing.album == null || existing.album!.isEmpty) return true;
     if (existing.fileModifiedMs != entry.fileModifiedMs) return true;
     // 文件被换成了同长度同 mtime 的另一个文件（极少见，但 rsync --size-only
     // 之类会造出来）：大小不同也重读。
@@ -88,7 +102,10 @@ class LocalSongBuilder {
 
     final title = _firstNonEmpty(tags?.title, fileName, unknownTitle)!;
     final artistName = _firstNonEmpty(tags?.artist, unknownArtist)!;
-    final albumName = _firstNonEmpty(tags?.album, null);
+    // 专辑回退链：内嵌标签 → 文件所在文件夹名。按文件夹整理的曲库
+    // （有声书/播客最常见）通常没有专辑标签，用文件夹名当专辑名比
+    // 「未知专辑」有用得多。
+    final albumName = _firstNonEmpty(tags?.album, _folderNameOf(entry.path));
 
     final durationMs = tags?.durationMs;
 
