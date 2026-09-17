@@ -9,6 +9,7 @@ import 'package:signals_flutter/signals_flutter.dart';
 import '../../app/router/app_page_route.dart';
 import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
+import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/feiniu/api_models.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/tv/tv_layout.dart';
@@ -41,17 +42,33 @@ class AlbumGroup {
   final FeiNiuAlbum album;
   final String? coverId;
 
+  /// 本地音源专辑（详情走数据库分支，见 AlbumDetailPage）。
+  final bool isLocal;
+
   AlbumGroup.fromFeiNiuAlbum(FeiNiuAlbum a)
       : name = a.name,
         songCount = a.trackCount ?? 0,
         album = a,
-        coverId = a.coverId;
+        coverId = a.coverId,
+        isLocal = false;
 
   AlbumGroup.fromFeiNiuAlbumJson(Map<String, dynamic> json)
       : name = json['name'] as String,
         songCount = json['songCount'] as int? ?? 0,
         album = FeiNiuAlbum.fromJson(json['album'] as Map<String, dynamic>),
-        coverId = json['coverId'] as String?;
+        coverId = json['coverId'] as String?,
+        isLocal = false;
+
+  AlbumGroup.local({
+    required this.name,
+    required this.songCount,
+  }) : album = FeiNiuAlbum(
+          guid: 'local-album:$name',
+          name: name,
+          trackCount: songCount,
+        ),
+        coverId = null,
+        isLocal = true;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -203,6 +220,40 @@ class _AlbumsPageState extends State<AlbumsPage>
     );
   }
 
+  /// 本地音源专辑分组：从数据库读本地歌按专辑聚合。
+  /// 远端已存在同名专辑时跳过（同名双份会造成混淆）。
+  Future<List<AlbumGroup>> _loadLocalAlbumGroups() async {
+    try {
+      final songs = await SongDao().fetchLocalSongs();
+      if (songs.isEmpty) return const [];
+      final counts = <String, int>{};
+      for (final s in songs) {
+        final name = (s.albumName?.isNotEmpty ?? false)
+            ? s.albumName!
+            : '未知专辑';
+        counts[name] = (counts[name] ?? 0) + 1;
+      }
+      final remoteNames =
+          _groups.value.map((g) => g.name.toLowerCase()).toSet();
+      final local = counts.entries
+          .where((e) => !remoteNames.contains(e.key.toLowerCase()))
+          .map((e) => AlbumGroup.local(name: e.key, songCount: e.value))
+          .toList();
+      local.sort((a, b) =>
+          a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return local;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 把本地专辑组追加到当前列表尾部（远端数据就绪后调用）。
+  Future<void> _appendLocalAlbums() async {
+    final local = await _loadLocalAlbumGroups();
+    if (!mounted || local.isEmpty) return;
+    _groups.value = [..._groups.value, ...local];
+  }
+
   Future<void> _init() async {
     await _loadPrefs();
     await _load(forceRefresh: false);
@@ -328,6 +379,7 @@ class _AlbumsPageState extends State<AlbumsPage>
           _loading.value = false;
           _preloadCovers(groups);
         }
+        await _appendLocalAlbums();
         await ApiCacheManager.instance.set(
           scope: 'album_list',
           key: cacheKey,
@@ -349,6 +401,7 @@ class _AlbumsPageState extends State<AlbumsPage>
             _loading.value = false;
             _preloadCovers(data);
           }
+          unawaited(_appendLocalAlbums());
           _isRefreshing.value = false; // 后台刷新完成
         }
       }
@@ -371,6 +424,7 @@ class _AlbumsPageState extends State<AlbumsPage>
           _loading.value = false;
           _preloadCovers(cached);
         }
+        unawaited(_appendLocalAlbums());
       }
       debugPrint('[AlbumsPage] load complete, groups=${_groups.value.length}, cached=$cached');
     } catch (_) {
@@ -541,7 +595,8 @@ class _AlbumsPageState extends State<AlbumsPage>
                         buildAppPageRoute(
                           (_) => AlbumDetailPage(
                             albumName: g.name,
-                            albumGuid: g.album.guid,
+                            // 本地专辑无飞牛 guid，详情页走数据库分支
+                            albumGuid: g.isLocal ? null : g.album.guid,
                             onMetadataChanged: (metadata) {
                               if (!mounted) return;
                               _applyMetadataUpdate(g.album.guid, metadata);
