@@ -55,7 +55,7 @@ class AlbumGroup {
         album = a,
         coverId = a.coverId,
         isLocal = false,
-        localCoverPath = null,
+        localCoverPath = null;
 
   AlbumGroup.fromFeiNiuAlbumJson(Map<String, dynamic> json)
       : name = json['name'] as String,
@@ -63,7 +63,7 @@ class AlbumGroup {
         album = FeiNiuAlbum.fromJson(json['album'] as Map<String, dynamic>),
         coverId = json['coverId'] as String?,
         isLocal = false,
-        localCoverPath = null,
+        localCoverPath = null;
 
   AlbumGroup.local({
     required this.name,
@@ -244,8 +244,9 @@ class _AlbumsPageState extends State<AlbumsPage>
         final cover = s.localCoverPath;
         if (cover != null &&
             cover.isNotEmpty &&
-            !covers.containsKey(name)) {{{E@          covers[name] = cover;
-        }}
+            !covers.containsKey(name)) {
+          covers[name] = cover;
+        }
       }
       final remoteNames =
           _groups.value.map((g) => g.name.toLowerCase()).toSet();
