@@ -63,9 +63,9 @@ New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 # 组装临时发布目录（Release 内容 + 使用说明 + 应用图标）
 # 注意：产物名需与 .github/workflows/build-release.yml 中的
-#   Copy-Item build/installer/FeiNiuMusic-v*-Windows.zip 保持一致，
+#   Copy-Item build/installer/Harken-v*-Windows.zip 保持一致，
 # 改名必须连同工作流一起改（未同步会导致 CI 找不到产物）。
-$BundleName = "FeiNiuMusic-v$Version-Windows"
+$BundleName = "Harken-v$Version-Windows"
 $Stage = Join-Path $OutDir "_stage_$BundleName"
 if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
 New-Item -ItemType Directory -Force $Stage | Out-Null
