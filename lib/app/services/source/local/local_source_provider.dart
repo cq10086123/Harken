@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../state/song_state.dart';
 import '../../db/dao/song_dao.dart';
@@ -11,6 +13,7 @@ import 'local_scanner.dart';
 import 'local_song_builder.dart';
 import 'local_song_id.dart';
 import 'local_tag_probe.dart';
+import 'media_store_scanner.dart';
 
 /// 一次扫描的结果统计。
 class LocalScanSummary {
@@ -115,10 +118,20 @@ class LocalSourceProvider {
     final durationFloor = minDurationMs ?? source.minDurationMs;
 
     // ── 1. 枚举文件（不读内容，很快）；顺带收集目录里的图片名 ──────
-    final scanResult = await _scanner.scanWithCovers(
-      source.includePaths,
-      isCancelled: isCancelled,
-    );
+    // Android 11+ 分区存储：没有「所有文件访问」时 dart:io 无法枚举共享
+    // 存储（Directory.list 异常被 LocalScanner 静默吞掉 → 0 首）。此时
+    // 走 MediaStore（photo_manager，只需 READ_MEDIA_AUDIO 普通弹窗）。
+    final bool useMediaStore = Platform.isAndroid &&
+        !await Permission.manageExternalStorage.status.isGranted;
+    final scanResult = useMediaStore
+        ? await const MediaStoreScanner().scanWithCovers(
+            source.includePaths,
+            isCancelled: isCancelled,
+          )
+        : await _scanner.scanWithCovers(
+            source.includePaths,
+            isCancelled: isCancelled,
+          );
     final entries = scanResult.entries;
     if (isCancelled?.call() ?? false) return const LocalScanSummary();
 
