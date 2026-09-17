@@ -8,7 +8,6 @@ import 'package:shadcn_flutter/shadcn_flutter.dart' as shad;
 import '../components/dialog/app_update_dialog.dart';
 import '../components/focus/tv_focus_scope.dart';
 import '../components/layout/tablet_layout_host.dart';
-import '../pages/login/login_page.dart';
 import '../pages/onboarding/onboarding_page.dart';
 import 'navigator_key.dart';
 import 'router/app_page_route.dart';
@@ -259,8 +258,6 @@ class HarkenApp extends StatelessWidget {
                 );
               },
             );
-          },
-        );
       },
     );
   }
@@ -322,9 +319,9 @@ class _TvOrientationSyncState extends State<_TvOrientationSync> {
 
 /// APP 启动门控
 ///
-/// 登录状态切换门控：
-/// - 未登录 → LoginPage
-/// - 已登录 → 直接进主页面（后台探测在 main() 中异步执行，不阻塞首页渲染）
+/// 仅保留首次引导门控。飞牛登录**不再是启动门控**：未登录也能进入主
+/// 界面（本地音源/有声书无需飞牛账号）。登录入口在「我的」页账号卡片
+/// 与 设置 → 账号 → 账号管理（添加新账号 = 登录）。
 class _AppStartupGate extends StatefulWidget {
   final bool tv;
   final Route<dynamic> Function(RouteSettings) onGenerateRoute;
@@ -371,12 +368,8 @@ class _AppStartupGateState extends State<_AppStartupGate> {
         if (!onboardingCompleted) {
           return const OnboardingPage();
         }
-        return ValueListenableBuilder<bool>(
-          valueListenable: AuthService.instance.isLoggedIn,
-          builder: (context, isLoggedIn, _) {
-            if (!isLoggedIn) {
-              return const LoginPage();
-            }
+        // 登录不再是启动门控：未登录也直接进入主界面。账号切换仍通过
+        // 下方的 currentAccountId 监听重建外壳。
             // 已登录进入主界面：首帧后自动检查更新（仅一次/会话，开关开启且有
             // 新版本才弹窗，不阻塞渲染）。登录后才触发，避免登录页被更新弹窗遮挡。
             if (!_scheduledAutoCheck) {
