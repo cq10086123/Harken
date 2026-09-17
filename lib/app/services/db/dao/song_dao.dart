@@ -89,6 +89,17 @@ class SongDao {
     return list;
   }
 
+  /// 本地音源歌曲（isLocal = 1，未标记删除）。本地库量级有限，直接全量取。
+  Future<List<SongEntity>> fetchLocalSongs() async {
+    final db = await DbHelper.instance.database;
+    final rows = await db.query(
+      DbConstants.tableSongs,
+      where: 'isLocal = 1 AND COALESCE(isAudioFileDeleted, 0) = 0',
+      orderBy: 'title COLLATE NOCASE',
+    );
+    return rows.map(SongEntity.fromMap).toList();
+  }
+
   Future<List<SongEntity>> fetchByIds(List<String> ids) async {
     if (ids.isEmpty) return const [];
     final db = await DbHelper.instance.database;
