@@ -1,8 +1,12 @@
 name: build-release
 
 on:
-  # 只手动触发：日常 push 不再全平台编译，发版时在 Actions 页面 Run workflow
-  # 并可填 version_name / version_code。
+  # PR 自动构建：arena 等 PR 作者无需任何权限，开 PR/推代码即验证；
+  # 配合 main 分支保护规则（4 个 build job 全绿才允许合并）。
+  pull_request:
+    branches:
+      - main
+  # 手动触发 = 正式发版：可填 version_name / version_code，构建成功发 Release。
   workflow_dispatch:
     inputs:
       version_name:
@@ -324,6 +328,8 @@ jobs:
           path: Harken-v*-iOS-unsigned.ipa
 
   publish:
+    # PR 构建只做验证，不发布 Release；仅手动触发（正式发版）时发布。
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # 必须等待全部四个平台：iOS 不在 needs 里时，publish 会在 ios-build
     # 产物尚未上传时提前下载，报 Artifact not found（竞态）。
@@ -388,6 +394,7 @@ jobs:
             macos-artifact/Harken-v*-MacOS.dmg
             macos-artifact/Harken-v*-MacOS.zip
             ios-artifact/Harken-v*-iOS-unsigned.ipa
+
 
 
 
