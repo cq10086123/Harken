@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../app/services/source/local/local_scanner.dart';
 import '../../../app/services/source/local/local_source_provider.dart';
@@ -100,8 +103,32 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
 
   // ── 扫描 ──────────────────────────────────────────────────────
 
+  /// 扫描前的存储权限保障。
+  ///
+  /// Android 11+ 分区存储下，dart:io 的 Directory.list 无法列共享存储
+  /// （/storage/emulated/0/...），必须持有「所有文件访问」
+  /// (MANAGE_EXTERNAL_STORAGE)；READ_MEDIA_AUDIO 只管 MediaStore 查询，
+  /// 管不了文件系统遍历。缺失时 Directory.list 抛异常被扫描器静默吞掉，
+  /// 表现就是「共 0 首」。这里显式申请，不通过就不启动扫描。
+  Future<bool> _ensureScanPermission() async {
+    if (!Platform.isAndroid) return true;
+    await Permission.audio.request();
+    final manage = await Permission.manageExternalStorage.request();
+    if (manage.isGranted) return true;
+    if (mounted) {
+      AppToast.show(
+        context,
+        '需要「所有文件访问」权限才能扫描本地目录，请在系统设置中开启',
+        type: ToastType.error,
+      );
+    }
+    return false;
+  }
+
   Future<void> _scan(LocalSourceConfig config) async {
     if (_scanningId != null) return;
+
+    if (!await _ensureScanPermission()) return;
 
     if (config.includePaths.isEmpty) {
       AppToast.show(context, '还没选目录', type: ToastType.info);
