@@ -224,7 +224,7 @@ class _AlbumsPageState extends State<AlbumsPage>
   /// 远端已存在同名专辑时跳过（同名双份会造成混淆）。
   Future<List<AlbumGroup>> _loadLocalAlbumGroups() async {
     try {
-      final songs = await SongDao().fetchLocalSongs();
+      final songs = await SongDao.instance.fetchLocalSongs();
       if (songs.isEmpty) return const [];
       final counts = <String, int>{};
       for (final s in songs) {
