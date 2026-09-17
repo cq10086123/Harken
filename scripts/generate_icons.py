@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Harken 应用图标生成器（单一矢量源 → 全平台资源）。
 
-设计：**H + 声波弧**。
-- H：品牌名首字母；
-- 声波弧：Harken 本义「倾听 / 聆听」，同时表达音频与音乐。
-纯色扁平、无渐变、无辉光、无投影 —— 只有 5 个形状（两竖 + 横梁 + 两道弧）。
+设计：**八分音符**，纯白压红底。
+刻意不做字母、不做声波、不做动物元素 —— 只留一个音乐符号，把重量和比例做到位。
+
+比例依据（对标 Spotify / Apple Music / Deezer 一类一线音乐 App 图标）：
+- 笔画粗细 ≈ 画布 10.6%
+- 标记占画布宽度 66%，视觉重心居中
+- 只有 3 个形状（符头 + 符干 + 符尾），纯色、无渐变 / 辉光 / 投影
 
 深浅两套：
 - 亮色：红底 #F02B3C + 白标
@@ -38,22 +41,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # --------------------------------------------------------------------------
 
 MARK = dict(
-    # ---- H 字形 ----
-    h_left=0.085,        # 左竖左边缘
-    stem_w=0.140,        # 竖笔画宽
-    h_gap=0.180,         # 两竖之间净空（H 的"口"）
-    h_top=0.225,
-    h_bottom=0.775,
-    # ---- 声波弧 ----
-    # 圆心地设在 H 右边缘，半径由「等间隙」反推：arc1 内缘 = H 右边缘 + wave_gap，
-    # arc(n+1) 内缘 = arc(n) 外缘 + wave_gap。这样三道间隙在中轴上完全相等，
-    # 才读得出「波」；若直接给半径，H→arc1 的间隙会比 arc1→arc2 大 3 倍。
-    wave_gap=0.100,      # 弧与 H / 弧与弧之间的间隙
-    wave_w=0.066,        # 弧线粗细
-    wave_count=2,
-    wave_span=46.0,      # 弧的张开半角（度）
+    # ---- 音符 ----
+    head_r=0.158,        # 符头半径（画布比例）
+    head_x=0.294,
+    head_y=0.742,
+    stem_w=0.112,        # 符干宽 = 画布 11.2%，一线音乐 App 图标的量级
+    stem_top=0.118,
+    # 符尾：上缘与符干顶端齐平，下缘收回符干内部（越界会长出毛刺）
+    flag_join=0.140,     # 符尾下缘回到符干处的纵向深度
+    flag_w=0.355,
+    flag_h=0.345,
     # ---- 光学取景 ----
-    mark_w=0.60,         # 品牌标记占画布宽度比例
+    mark_w=0.66,         # 标记占画布宽度比例
     mark_cy=0.5,
 )
 
@@ -61,9 +60,7 @@ MARK = dict(
 LIGHT = dict(bg="#F02B3C", mark="#FFFFFF")
 DARK = dict(bg="#101014", mark="#FFFFFF")
 
-# 小尺寸简化：小于 48px 时去掉声波弧（间隙不足 2px 会糊成一片），只保留 H
-SIMPLIFY_BELOW = 48
-
+# 八分音符在所有尺寸下都清晰（16px 实测可读），无需按尺寸简化标记。
 
 # --------------------------------------------------------------------------
 # 基础几何
@@ -116,28 +113,50 @@ def path_of(poly, px) -> str:
 # 标记几何
 # --------------------------------------------------------------------------
 
-def h_glyph(p, *, with_waves=True):
-    """H（两竖 + 横梁）+ 可选声波弧。返回画布比例坐标下的多边形列表。"""
-    sw, gap = p["stem_w"], p["h_gap"]
-    left = p["h_left"]
-    right = left + sw + gap
-    top, bottom = p["h_top"], p["h_bottom"]
-    mid = (top + bottom) / 2
-    bar_h = sw * 1.04
-    # 笔画终端圆角、横梁接头略小 —— 视觉上不至于在拐角处鼓包
-    polys = [
-        rrect(left, top, left + sw, bottom, sw * 0.5),
-        rrect(right, top, right + sw, bottom, sw * 0.5),
-        rrect(left + sw, mid - bar_h / 2, right, mid + bar_h / 2, sw * 0.30),
-    ]
-    if with_waves:
-        cx = right + sw                      # 圆心落在 H 右边缘
-        r = p["wave_gap"] + p["wave_w"] / 2  # arc1 半径：内缘距 H 右边缘 wave_gap
-        for _ in range(p["wave_count"]):
-            polys.append(arc_band(cx, mid, r, p["wave_w"],
-                                  -p["wave_span"], p["wave_span"]))
-            r += p["wave_gap"] + p["wave_w"]
+def note_polygons(p, *, detail=1.0):
+    """八分音符：符头（圆）+ 符干（平顶圆角竖条）+ 符尾（翅膀形）。
+
+    符尾是一枚闭合多边形：上缘从符干内部出发向外下扫，下缘再收回符干内部。
+    起点/终点都落在符干轮廓之内，所以接缝处不会出现缺口或毛刺 —— 这是
+    反复调参后唯一稳定的做法（用两条带圆头的粗线相接一定会留缺口）。
+    """
+    hr, hx, hy = p["head_r"], p["head_x"], p["head_y"]
+    sw, top = p["stem_w"], p["stem_top"]
+    sx = hx + hr * 0.40                    # 符干左缘：与符头四分之三处相切
+    n = max(24, int(120 * detail))
+
+    polys = [circle_pts(hx, hy, hr, n=max(64, int(200 * detail))),
+             rrect(sx, top, sx + sw, hy, sw * 0.34)]
+
+    a = sx + sw * 0.58                     # 符尾起点：符干内部
+    fw, fh, j = p["flag_w"], p["flag_h"], p["flag_join"]
+    outer = bez((a, top),
+                (a + fw * 0.60, top + 0.010),
+                (a + fw * 0.99, top + fh * 0.50),
+                (a + fw * 0.95, top + fh), n=n)
+    inner = bez((a + fw * 0.95, top + fh),
+                (a + fw * 0.86, top + fh * 0.54),
+                (a + fw * 0.36, top + j * 0.70),
+                (sx + sw * 0.42, top + j), n=n)   # 收回符干内部
+    polys.append(outer + inner)
     return polys
+
+
+def circle_pts(cx, cy, r, n=200):
+    return [(cx + r * math.cos(2 * math.pi * i / n),
+             cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
+
+
+def bez(p0, c1, c2, p3, n=120):
+    out = []
+    for i in range(n + 1):
+        t = i / n
+        u = 1 - t
+        out.append((
+            u ** 3 * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t ** 3 * p3[0],
+            u ** 3 * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t ** 3 * p3[1],
+        ))
+    return out
 
 
 def framing(polys, mark_w, mark_cy):
@@ -153,22 +172,22 @@ def framing(polys, mark_w, mark_cy):
     return [[(x * s + tx, y * s + ty) for x, y in poly] for poly in polys]
 
 
-def mark_polygons(params=None, mark_w=None, mark_cy=None, *, with_waves=True):
+def mark_polygons(params=None, mark_w=None, mark_cy=None):
     p = dict(params or MARK)
-    return framing(h_glyph(p, with_waves=with_waves),
+    return framing(note_polygons(p),
                    p["mark_w"] if mark_w is None else mark_w,
                    p["mark_cy"] if mark_cy is None else mark_cy)
 
 
-def max_radius(mark_w: float, *, with_waves=True) -> float:
+def max_radius(mark_w: float) -> float:
     """标记在当前 mark_w 下的最大顶点半径（相对画布宽度），用于安全区反解。"""
-    polys = mark_polygons(mark_w=mark_w, with_waves=with_waves)
+    polys = mark_polygons(mark_w=mark_w)
     return max(math.hypot(x - 0.5, y - 0.5) for poly in polys for x, y in poly)
 
 
-def fit_mark_w(safe_ratio: float, *, with_waves=True) -> float:
+def fit_mark_w(safe_ratio: float) -> float:
     """求满足给定安全半径（相对画布宽度）的最大 mark_w。"""
-    return safe_ratio / max_radius(1.0, with_waves=with_waves)
+    return safe_ratio / max_radius(1.0)
 
 
 # --------------------------------------------------------------------------
@@ -176,8 +195,8 @@ def fit_mark_w(safe_ratio: float, *, with_waves=True) -> float:
 # --------------------------------------------------------------------------
 
 def build_svg(width: int, *, bg=None, mark="#FFFFFF", mark_w=None,
-              mark_cy=None, with_waves=True, radius=0.0) -> str:
-    polys = mark_polygons(mark_w=mark_w, mark_cy=mark_cy, with_waves=with_waves)
+              mark_cy=None, radius=0.0) -> str:
+    polys = mark_polygons(mark_w=mark_w, mark_cy=mark_cy)
     body = ""
     if bg:
         if radius:
@@ -190,9 +209,9 @@ def build_svg(width: int, *, bg=None, mark="#FFFFFF", mark_w=None,
             f'viewBox="0 0 {width} {width}">\n{body}\n</svg>\n')
 
 
-def build_mono_svg(size: int, *, with_waves=True, mark_w=None) -> str:
+def build_mono_svg(size: int, *, mark_w=None) -> str:
     """单色剪影（模板图标：读屏状态栏 / Android 主题化图标）。"""
-    polys = mark_polygons(mark_w=mark_w, with_waves=with_waves)
+    polys = mark_polygons(mark_w=mark_w)
     d = " ".join(path_of(ensure_cw(poly), size) for poly in polys)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
             f'viewBox="0 0 {size} {size}">\n<path fill="#000000" '
@@ -358,8 +377,7 @@ def gen_ios(r: Raster) -> None:
             continue
         px = int(round(float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))))
         # 小尺寸用简化标记；并去掉 alpha（App Store 审核要求）
-        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"],
-                        with_waves=px >= SIMPLIFY_BELOW),
+        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"]),
               os.path.join(base, name), px, opaque=LIGHT["bg"])
     launch = p("ios/Runner/Assets.xcassets/LaunchImage.imageset")
     for name, scale in (("LaunchImage.png", 1), ("LaunchImage@2x.png", 2),
@@ -385,12 +403,11 @@ def gen_macos(r: Raster) -> None:
         if not name:
             continue
         px = int(round(float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))))
-        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"],
-                        with_waves=px >= SIMPLIFY_BELOW),
+        r.png(build_svg(px, bg=LIGHT["bg"], mark=LIGHT["mark"]),
               os.path.join(base, name), px)
     # 菜单栏模板图标：单色剪影（系统按明暗自动反色）；18pt 用简化标记保证可读
     write(p("macos/Runner/Assets.xcassets/StatusBarIcon.imageset/status_bar_icon.svg"),
-          build_mono_svg(18, with_waves=False, mark_w=0.86))
+          build_mono_svg(18, mark_w=0.86))
     print("  macOS 图标完成")
 
 
@@ -400,7 +417,7 @@ def gen_windows(r: Raster) -> None:
     for s in sizes:
         out = os.path.join(r.tmp, f"win_{s}.png")
         r.png(build_svg(s, bg=LIGHT["bg"], mark=LIGHT["mark"],
-                        with_waves=s >= SIMPLIFY_BELOW), out, s)
+                        ), out, s)
         tmp.append(out)
     r.ico(tmp, p("windows/runner/resources/app_icon.ico"))
     print("  Windows 图标完成")
@@ -413,7 +430,7 @@ def gen_tray(r: Raster) -> None:
     for s in sizes:
         out = os.path.join(r.tmp, f"tray_{s}.png")
         r.png(build_svg(s, bg=None, mark=LIGHT["bg"], mark_w=0.88,
-                        with_waves=s >= SIMPLIFY_BELOW), out, s)
+                        ), out, s)
         tmp.append(out)
     r.ico(tmp, p("assets/icon/app_icon.ico"))
     print("  托盘图标完成")
@@ -430,9 +447,9 @@ def gen_web(r: Raster) -> None:
         r.png(build_svg(s, bg=LIGHT["bg"], mark=LIGHT["mark"], mark_w=maskable_mw),
               p(f"web/icons/Icon-maskable-{s}.png"), s)
     # 浏览器 favicon：亮/暗两套，由 index.html 的媒体查询切换
-    r.png(build_svg(32, bg=LIGHT["bg"], mark=LIGHT["mark"], with_waves=False),
+    r.png(build_svg(32, bg=LIGHT["bg"], mark=LIGHT["mark"]),
           p("web/favicon.png"), 32)
-    r.png(build_svg(32, bg=DARK["bg"], mark=DARK["mark"], with_waves=False),
+    r.png(build_svg(32, bg=DARK["bg"], mark=DARK["mark"]),
           p("web/favicon-dark.png"), 32)
     print("  Web / 应用内图标完成")
 

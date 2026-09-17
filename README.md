@@ -75,8 +75,16 @@
 
 ## 图标
 
-应用图标为 **H + 声波弧**：`H` 是品牌名首字母，声波弧取自 Harken 的本义
-「倾听 / 聆听」，同时表达音频与音乐。纯色扁平、无渐变与光效，全图仅 5 个形状。
+应用图标为 **八分音符**：纯白压红底，只有 3 个形状（符头 / 符干 / 符尾），
+纯色扁平、无渐变与光效。
+
+比例是对标 Spotify / Apple Music / Deezer 一类一线音乐 App 图标定的：
+
+| 指标 | 取值 | 说明 |
+| :--- | :--- | :--- |
+| 笔画粗细 | 画布 11.2% | 过细会发虚、像程序生成 |
+| 标记宽度 | 画布 66% | 过小会显得空 |
+| 形状数 | 3 | 一个想法，不做字母 / 声波 / 动物元素 |
 
 图标由 `scripts/generate_icons.py` 从同一份矢量几何生成，覆盖 Android / iOS /
 macOS / Windows / Web 及桌面托盘、开屏、状态栏等全部尺寸：
@@ -106,10 +114,8 @@ python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
 - **iOS / Windows / macOS** —— 系统不支持 Dock / 任务栏图标随明暗切换，统一使用
   亮色版；iOS 启动图用红色标记，在明暗两种启动背景上都清晰。
 
-> 注意两点：
-> 1. 图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
->    monochrome 层）。修改图标请改 `scripts/generate_icons.py` 的几何参数后重新运行。
-> 2. 小于 48px 的尺寸会自动去掉声波弧（间隙不足 2px 会糊成一片），只保留 H。
+> 注意：图标不再由 `flutter_launcher_icons` 生成（它不支持 Android 13 主题图标与
+> monochrome 层）。修改图标请改 `scripts/generate_icons.py` 的几何参数后重新运行。
 
 ## 与上游 NagoMusic 的差异
 
@@ -118,7 +124,7 @@ python3 scripts/generate_icons.py --svg-only  # 只输出矢量源
 - 引入双播放器架构（系统解码 + FFmpeg 兜底），扩展无损格式支持
 - 新增 TV / 平板自适应布局与遥控器焦点导航
 - 净化和精简上游冗余代码，适配飞牛场景
-- 重绘全套品牌图标与启动画面（H + 声波弧），替换上游遗留 Logo（详见「图标」一节）
+- 重绘全套品牌图标与启动画面，替换上游遗留 Logo（详见「图标」一节）
 
 ## 适用平台
 
