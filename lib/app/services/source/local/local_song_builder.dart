@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../state/song_state.dart';
 import 'local_audio_extensions.dart';
+import 'local_scanner.dart';
 import 'local_song_id.dart';
 import 'local_tag_probe.dart';
 
