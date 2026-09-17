@@ -54,7 +54,6 @@ class SongDetailSheet extends StatefulWidget {
 
 class _SongDetailSheetState extends State<SongDetailSheet> {
   final FavoriteRouter _favoriteRouter = FavoriteRouter.instance;
-      FeiNiuFavoriteService.instance;
   bool _isFavorite = false;
   bool _loadingFavorite = true;
 
