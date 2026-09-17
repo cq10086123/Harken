@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
@@ -39,15 +41,19 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
 
   /// 封面来源变化时重置上报状态。
   ///
-  /// 切歌后新歌 coverId / updatedAt 变了，但 State 复用、_lastReportedAvailable
-  /// 仍是旧歌的值：若旧歌上报过 true，新封面加载完成时 imageBuilder 再上报
-  /// true 会被去重吞掉，导致播放页认为始终无封面而不再旋转。
+  /// 切歌后新歌 coverId / updatedAt / localCoverPath 变了，但 State 复用、
+  /// _lastReportedAvailable 仍是旧歌的值：若旧歌上报过 true，新封面加载完成时
+  /// imageBuilder 再上报 true 会被去重吞掉，导致播放页认为始终无封面而不再旋转。
   /// 因此在封面来源变化时清空去重标记，让新封面的上报能重新生效。
+  ///
+  /// `localCoverPath` 必须在列：本地音源的歌 coverId 恒为 null，若只比 coverId
+  /// 与 updatedAt，两首本地歌之间切歌就永远不会重置。
   @override
   void didUpdateWidget(ArtworkWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id ||
         oldWidget.song.coverId != widget.song.coverId ||
+        oldWidget.song.localCoverPath != widget.song.localCoverPath ||
         oldWidget.song.updatedAt != widget.song.updatedAt) {
       _lastReportedAvailable = null;
     }
@@ -74,6 +80,9 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final coverId = widget.song.coverId;
+    // trim 后判空：库里的 TEXT 列可能是空白串，直接 isNotEmpty 会走进
+    // 渲染分支然后拿一个无效路径去解码，表现为一直转圈而不是退回占位图。
+    final localCoverPath = (widget.song.localCoverPath ?? '').trim();
     final size = widget.size;
     final borderRadius = widget.borderRadius;
     final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
@@ -132,6 +141,38 @@ class _ArtworkWidgetState extends State<ArtworkWidget> with SignalsMixin {
             ),
           ),
           errorWidget: (context, url, error) {
+            _report(false);
+            return placeholder;
+          },
+        ),
+      );
+    } else if (localCoverPath.isNotEmpty) {
+      // 本地音源：封面是扫描时从内嵌标签落盘的本地文件（见 LocalCoverStore）。
+      // 走 Image.file 而不是 CachedNetworkImage —— 文件已在磁盘上，没有网络
+      // 请求，也不需要 flutter_cache_manager 那套磁盘缓存。
+      child = ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: Image.file(
+          File(localCoverPath),
+          width: size,
+          height: size,
+          cacheWidth: memoryCacheSize,
+          cacheHeight: memoryCacheSize,
+          fit: BoxFit.cover,
+          // 列表滚动复用时保留上一帧，避免闪白。
+          gaplessPlayback: true,
+          frameBuilder: (context, imageChild, frame, wasSynchronouslyLoaded) {
+            // frame == null 表示首帧还没解码完；此时给占位而不是空白。
+            // _report 内部有去重，frameBuilder 每帧都调也没关系。
+            if (frame != null || wasSynchronouslyLoaded) {
+              _report(true);
+              return imageChild;
+            }
+            return placeholder;
+          },
+          errorBuilder: (context, error, stackTrace) {
+            // 封面文件被清理掉了（清缓存 / 用户删了临时目录）：退回占位图，
+            // 下次扫描会重新落盘。
             _report(false);
             return placeholder;
           },

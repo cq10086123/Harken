@@ -91,6 +91,11 @@ CREATE TABLE ${DbConstants.tableSongs} (
   album TEXT,
   uri TEXT,
   isLocal INTEGER NOT NULL DEFAULT 0,
+  sourceId TEXT,
+  fileModifiedMs INTEGER,
+  localCoverPath TEXT,
+  localAssetId TEXT,
+  tagsParsed INTEGER NOT NULL DEFAULT 0,
   headersJson TEXT,
   durationMs INTEGER,
   bitrate INTEGER,
@@ -117,6 +122,13 @@ CREATE TABLE ${DbConstants.tableSongs} (
         );
         await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_songs_album ON ${DbConstants.tableSongs}(album COLLATE NOCASE)',
+        );
+        // 多音源：按音源过滤 / 按音源内标题排序是库页面的两个主查询形态。
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_songs_source ON ${DbConstants.tableSongs}(sourceId)',
+        );
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_songs_source_title ON ${DbConstants.tableSongs}(sourceId, title COLLATE NOCASE)',
         );
         await db.execute('''
 CREATE TABLE ${DbConstants.tablePlaylists} (
@@ -405,6 +417,38 @@ CREATE TABLE IF NOT EXISTS ${DbConstants.tableReportEvents} (
             db,
             'isAudioFileDeleted',
             'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 18) {
+          // 多音源改造（飞牛 / 本地 / WebDAV 并存）：songs 需要携带归属音源。
+          //
+          // sourceId：归属音源 ID。存量行留 NULL，由
+          // SongEntity.effectiveSourceId 归位到 'feiniu-default'，
+          // 因此**不需要数据回填脚本**。
+          //
+          // localCoverPath / tagsParsed / localAssetId：这三列分别在 v2、v2、v8
+          // 迁移里加过，但**只存在于对应的 oldVersion 分支**，onCreate 建表语句
+          // 一直没有它们——于是全新安装的库反而缺列。本版本起 onCreate 已补上，
+          // 这里再无条件补齐一次，保证「v1 升级上来」「v2~v17 升级上来」
+          // 「全新安装」三种库的列状态一致。
+          //
+          // 全部走 _addSongColumnIfMissing（PRAGMA table_info 先查列名），
+          // 任意历史状态（含高版本降级后 user_version 被复位、列仍保留）下
+          // 都能安全幂等执行。
+          await _addSongColumnIfMissing(db, 'sourceId', 'TEXT');
+          await _addSongColumnIfMissing(db, 'fileModifiedMs', 'INTEGER');
+          await _addSongColumnIfMissing(db, 'localCoverPath', 'TEXT');
+          await _addSongColumnIfMissing(db, 'localAssetId', 'TEXT');
+          await _addSongColumnIfMissing(
+            db,
+            'tagsParsed',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_songs_source ON ${DbConstants.tableSongs}(sourceId)',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_songs_source_title ON ${DbConstants.tableSongs}(sourceId, title COLLATE NOCASE)',
           );
         }
       },
