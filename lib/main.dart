@@ -79,7 +79,14 @@ Future<void> main() async {
   final isTvDevice = TvDetection.result.value;
   // flutter_displaymode 仅 Android 实现；Windows/桌面端跳过（无高刷概念）。
   if (!isTvDevice && Platform.isAndroid) {
-    await FlutterDisplayMode.setHighRefreshRate();
+    // 高刷设置是锦上添花：模拟器 / 后台启动等场景 Activity 未挂上时插件
+    // 会抛 PlatformException(noActivity)。这里绝不能让异常外泄——否则
+    // main() 中断，runApp 永远不执行，App 卡死在启动页。
+    try {
+      await FlutterDisplayMode.setHighRefreshRate();
+    } catch (e) {
+      DebugLogService.instance.add('[main] setHighRefreshRate 失败（已忽略）: $e');
+    }
   }
   // 先加载设置：确保持久化的「TV 模式」手动开关已就位，再合并检测结果。
   // 必须放在 syncTvMode() 之前，否则重启后已开启的开关读不进来，
