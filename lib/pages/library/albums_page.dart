@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -45,23 +46,29 @@ class AlbumGroup {
   /// 本地音源专辑（详情走数据库分支，见 AlbumDetailPage）。
   final bool isLocal;
 
+  /// 本地专辑封面（内嵌图落盘后的路径；null = 无封面用占位）。
+  final String? localCoverPath;
+
   AlbumGroup.fromFeiNiuAlbum(FeiNiuAlbum a)
       : name = a.name,
         songCount = a.trackCount ?? 0,
         album = a,
         coverId = a.coverId,
-        isLocal = false;
+        isLocal = false,
+        localCoverPath = null,
 
   AlbumGroup.fromFeiNiuAlbumJson(Map<String, dynamic> json)
       : name = json['name'] as String,
         songCount = json['songCount'] as int? ?? 0,
         album = FeiNiuAlbum.fromJson(json['album'] as Map<String, dynamic>),
         coverId = json['coverId'] as String?,
-        isLocal = false;
+        isLocal = false,
+        localCoverPath = null,
 
   AlbumGroup.local({
     required this.name,
     required this.songCount,
+    this.localCoverPath,
   }) : album = FeiNiuAlbum(
           guid: 'local-album:$name',
           name: name,
@@ -227,17 +234,28 @@ class _AlbumsPageState extends State<AlbumsPage>
       final songs = await SongDao.instance.fetchLocalSongs();
       if (songs.isEmpty) return const [];
       final counts = <String, int>{};
+      final covers = <String, String>{};
       for (final s in songs) {
         final name = (s.albumName?.isNotEmpty ?? false)
             ? s.albumName!
             : '未知专辑';
         counts[name] = (counts[name] ?? 0) + 1;
+        // 取该专辑第一首有内嵌封面的歌作为专辑封面
+        final cover = s.localCoverPath;
+        if (cover != null &&
+            cover.isNotEmpty &&
+            !covers.containsKey(name)) {{{E@          covers[name] = cover;
+        }}
       }
       final remoteNames =
           _groups.value.map((g) => g.name.toLowerCase()).toSet();
       final local = counts.entries
           .where((e) => !remoteNames.contains(e.key.toLowerCase()))
-          .map((e) => AlbumGroup.local(name: e.key, songCount: e.value))
+          .map((e) => AlbumGroup.local(
+            name: e.key,
+            songCount: e.value,
+            localCoverPath: covers[e.key],
+          ))
           .toList();
       local.sort((a, b) =>
           a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -652,6 +670,7 @@ class _AlbumsPageState extends State<AlbumsPage>
                                       alignment: Alignment.topLeft,
                                       child: _AlbumCover(
                                         coverId: g.coverId,
+                                        localCoverPath: g.localCoverPath,
                                         size: size,
                                         borderRadius: 16,
                                         albumName: g.name,
@@ -778,6 +797,7 @@ class _AlbumsPageState extends State<AlbumsPage>
 
 class _AlbumCover extends StatelessWidget {
   final String? coverId;
+  final String? localCoverPath;
   final double size;
   final double borderRadius;
   final Widget placeholder;
@@ -785,6 +805,7 @@ class _AlbumCover extends StatelessWidget {
 
   const _AlbumCover({
     required this.coverId,
+    this.localCoverPath,
     required this.size,
     required this.borderRadius,
     required this.placeholder,
@@ -797,6 +818,20 @@ class _AlbumCover extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final memoryCacheSize = coverMemoryCacheDimensionOf(context, size);
+    // 本地专辑：内嵌封面已落盘，直接读文件
+    if (localCoverPath != null && localCoverPath!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: Image.file(
+          File(localCoverPath!),
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              SizedBox(width: size, height: size, child: placeholder),
+        ),
+      );
+    }
     if (coverId == null || coverId!.isEmpty) {
       return SizedBox(
         width: size,
