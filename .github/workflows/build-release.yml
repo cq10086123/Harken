@@ -195,11 +195,18 @@ jobs:
           # 保留配套 release 的原始文件名（含配套自身版本号，而非本 App 版本）
           FPK_NAME=$(basename "$FPK_URL")
           if [ -z "$FPK_NAME" ] || [ "${FPK_NAME%.fpk}" = "$FPK_NAME" ]; then
-            FPK_NAME="FnMusicEnhance-${VERSION}.fpk"
+            FPK_NAME="Harken-Enhance-${VERSION}.fpk"
           fi
           echo "下载: $FPK_URL"
-          echo "保存为: $FPK_NAME"
+          echo "下载: $FPK_NAME"
           curl -sL -o "$FPK_NAME" "$FPK_URL"
+          # 统一改为 Harken 前缀，保留配套应用自身的版本号（如 Harken-Enhance-2.0.2.fpk）
+          ENHANCE_VER="${FPK_NAME##*-}"
+          ENHANCE_VER="${ENHANCE_VER%.fpk}"
+          case "$ENHANCE_VER" in ""|*[!0-9.]*) ENHANCE_VER="$VERSION";; esac
+          mv "$FPK_NAME" "Harken-Enhance-$ENHANCE_VER.fpk"
+          FPK_NAME="Harken-Enhance-$ENHANCE_VER.fpk"
+          echo "保存为: $FPK_NAME"
           ls -la "$FPK_NAME"
       - name: 上传 Android 产物
         uses: actions/upload-artifact@v4
@@ -207,7 +214,7 @@ jobs:
           name: android-build
           path: |
             Harken-v*.apk
-            FnMusicEnhance-*.fpk
+            Harken-Enhance-*.fpk
             pubspec.yaml
 
   # macOS：随 release 发布（绿色版 zip，内含 Harken.app）。
@@ -374,11 +381,12 @@ jobs:
           body_path: release_notes.txt
           files: |
             android-artifact/Harken-v*.apk
-            android-artifact/FnMusicEnhance-*.fpk
+            android-artifact/Harken-Enhance-*.fpk
             windows-artifact/Harken-v*-Windows.zip
             macos-artifact/Harken-v*-MacOS.dmg
             macos-artifact/Harken-v*-MacOS.zip
             ios-artifact/Harken-v*-iOS-unsigned.ipa
+
 
 
 
