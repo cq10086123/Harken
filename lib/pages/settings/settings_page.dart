@@ -166,6 +166,17 @@ class _SettingsPageState extends State<SettingsPage> {
                         AppRoutes.lyricsSettings,
                       ),
                     ),
+                  // 元数据管理（数据源搜索匹配）依赖服务端增强（FnMusicEnhance），
+                  // 后端可达即可用（含 Windows 桌面端）。
+                  AppSettingTile(
+                    title: '元数据管理',
+                    subtitle: '音乐元数据维护',
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.metadataMatchSettings,
+                    ),
+                  ),
                   AppSettingTile(
                     title: '启动设置',
                     subtitle: '控制APP启动后的行为',
