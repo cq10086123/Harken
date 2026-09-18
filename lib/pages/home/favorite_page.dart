@@ -5,7 +5,7 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../components/index.dart';
 import '../../app/services/feiniu/api_client.dart';
-import '../../app/services/feiniu/favorite_service.dart';
+import '../../app/services/source/favorite_router.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/player_service.dart';
@@ -405,7 +405,7 @@ class _FavoritePageState extends State<FavoritePage>
             titleColor: Theme.of(context).colorScheme.error,
             onTap: () async {
               try {
-                await FeiNiuFavoriteService.instance.unfavorite(song.id);
+                await FavoriteRouter.instance.setFavorite(song, false);
                 if (!mounted) return;
                 final updated = List<SongEntity>.from(_allSongs.value)
                   ..removeWhere((s) => s.id == song.id);
