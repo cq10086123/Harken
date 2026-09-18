@@ -3263,8 +3263,11 @@ class PlayerService with WidgetsBindingObserver {
     _restoreSession = session;
     // 恢复漫游链：随机模式重启后下一曲仍沿用同一个随机队列，而不是重新 roam-start
     roamId = session.roamId;
-    _applyLogicalQueue(session.queue, session.index);
+    // **先恢复模式，再应用队列**：_applyLogicalQueue 在随机模式下会把队列尾部
+    // 打乱——顺序反了的话，恢复出来的队列是原始顺序，界面却显示「随机播放」，
+    // 点下一首永远是顺序的下一首（v1.7.12 真机复现的 bug）。
     playbackMode.value = session.mode;
+    _applyLogicalQueue(session.queue, session.index);
     _debugLog('restoreUiState -> mode=${session.mode.name}');
     position.value = session.position;
     bufferedPosition.value = Duration.zero;
