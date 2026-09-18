@@ -114,6 +114,25 @@ class SongDao {
     );
   }
 
+  /// 单条歌曲的收藏状态，直接读库（查不到返回 null）。
+  ///
+  /// 本地歌的红心必须**以数据库为准**：调用方手里的 [SongEntity] 通常是列表
+  /// 或播放队列构建时的快照，收藏后没人回写它，直接读 `song.isFavorite`
+  /// 会让红心永远停在旧值（收藏了也不亮）。
+  Future<bool?> favoriteStateOf(String id) async {
+    final db = await DbHelper.instance.database;
+    final rows = await db.query(
+      DbConstants.tableSongs,
+      columns: ['isFavorite'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final value = rows.first['isFavorite'];
+    return value == 1 || value == true;
+  }
+
   Future<List<SongEntity>> fetchLocalSongs() async {
     final db = await DbHelper.instance.database;
     final rows = await db.query(
