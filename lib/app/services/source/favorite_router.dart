@@ -64,8 +64,10 @@ class FavoriteRouter {
     if (ids.isEmpty) return 0;
     try {
       final local = await SongDao.instance.fetchByIds(ids);
+      // WebDAV 歌的收藏也写本地列（服务端没有它们），所以这里按
+      // 「非飞牛」分流，而不是按 isLocal。
       final localIds = local
-          .where((s) => s.isLocal)
+          .where((s) => !isFeiniuRemoteSong(s))
           .map((s) => s.id)
           .toSet();
       for (final id in localIds) {
