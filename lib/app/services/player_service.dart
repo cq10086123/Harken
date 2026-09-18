@@ -30,6 +30,7 @@ import 'source/song_stream_dispatch.dart';
 import 'stats_service.dart';
 import 'listening_recorder_service.dart';
 import 'volume_schedule_service.dart';
+import '../state/settings_playback_engine_state.dart';
 import '../state/settings_state.dart';
 import '../state/song_state.dart';
 import '../../components/feedback/app_toast.dart';
@@ -97,9 +98,9 @@ class PlayerService with WidgetsBindingObserver {
 
   /// 手动切换解码器覆盖表：`Map<songId, EngineKind>`（会话级）。用户点歌曲信息
   /// 面板的解码 tag 手动指定引擎时写入，_computeEngineKinds 命中后优先于
-  /// routeForSong 默认路由。**仅当前歌曲命中**，不参与现有自动升级
-  /// （_mediaKitEscalateSongIds）与无声看门狗（_silenceWatchEscalatedSongIds）
-  /// 逻辑；切歌后新歌曲 id 不命中即失效。
+  /// routeForSong 默认路由，优先于全局「解码引擎」设置。
+  /// **仅当前歌曲命中**，不参与自动升级（_mediaKitEscalateSongIds）逻辑；
+  /// 切歌后新歌曲 id 不命中即失效。
   final Map<String, EngineKind> _forcedEngineKinds = {};
 
   /// 用户在歌曲信息面板转码格式里选了「直连」的歌曲 id（会话级）。这些歌
@@ -125,18 +126,6 @@ class PlayerService with WidgetsBindingObserver {
   /// 判定「歌曲确实在播」的位置阈值：位置推进超过它才算真实播放
   /// （用于区分 mpv「加载失败也报 completed」与真正播完）。
   static const Duration _playedThreshold = Duration(seconds: 1);
-
-  /// 无声看门狗：对「codec 未知 + 可疑容器」的 just_audio 歌曲，播放确认后
-  /// 若位置照常推进但可能无声（ExoPlayer 设备解码器静默失败），升级 media_kit
-  /// 重播。升级后不再重复处理：media_kit（FFmpeg）解码即出声，失败走 mpv
-  /// errorStream 由既有 `_mediaKitFailedSongIds` 兜底跳过。
-  String? _silenceWatchSongId;
-  Timer? _silenceWatchTimer;
-
-  /// 已由看门狗升级过 media_kit 的歌曲 id（会话级）。用于去重与日志。
-  final Set<String> _silenceWatchEscalatedSongIds = {};
-  static const Duration _silenceGrace = Duration(seconds: 3);
-  static const Duration _silenceMinAdvance = Duration(seconds: 1);
 
   /// 网络缓慢提示计时器：media_kit 播无损大文件缓冲超时时触发一次提示。
   Timer? _slowNetworkTimer;
@@ -867,6 +856,13 @@ class PlayerService with WidgetsBindingObserver {
         if (forced != null) {
           // _debugLog('engineKind ${s.title} -> ${forced.name} (manual)');
           return (kind: forced, transcode: false);
+        }
+        // 全局「FFmpeg 软解码」模式：全部直连 media_kit，并跳过服务器转码
+        // （FFmpeg 什么都能解，转码纯属多余；转码产物是 HLS，只会把播放
+        // 拉回 ExoPlayer）。用户显式指定的引擎优先于转码策略。
+        if (AppPlaybackEngineSettings.mode.value ==
+            PlaybackEngineMode.ffmpeg) {
+          return (kind: EngineKind.mediaKit, transcode: false);
         }
         // 转码歌强制 just_audio（HLS 只能 ExoPlayer 播）。转码失败标记后
         // 回落到下方 routeForSong（DSF→mediaKit 直连，FLAC→justAudio 直连）。
@@ -2032,88 +2028,6 @@ class PlayerService with WidgetsBindingObserver {
     await _advanceToLogicalIndex(idx + 1, resumePlayback: wasPlaying);
   }
 
-  /// 是否应为当前歌曲启动无声看门狗。
-  ///
-  /// - just_audio 引擎：仅当 codec **未知**且容器可能内嵌风险 codec
-  ///   （m4a/mp4/aac…）时 arm——这类歌 ExoPlayer 设备解码器可能静默失败。
-  ///   codec 已知（eac3/alac 等）已由路由层直接走 media_kit，无需看门狗；
-  ///   普通 flac/mp3/ogg 容器不 arm，避免误报。
-  /// - media_kit 引擎：不再 arm——升级后由 mpv errorStream 兜底，避免把
-  ///   「media_kit 已正常出声」误判为再次无声。
-  bool _shouldArmSilenceWatch() {
-    if (_recoveringCurrentSource || _restoringState) return false;
-    final song = currentSong.value;
-    if (song == null) return false;
-    if (_activeEngine.kind != EngineKind.justAudio) return false;
-    // 已升级过 → 不重复处理。
-    if (_silenceWatchEscalatedSongIds.contains(song.id)) return false;
-    return song.codec == null &&
-        FeiNiuTranscodeService.isRiskySilenceContainer(song.format);
-  }
-
-  /// 歌曲切换时重新启动无声看门狗。取消旧 timer，按条件决定是否 arm。
-  void _restartSilenceWatch() {
-    _silenceWatchTimer?.cancel();
-    _silenceWatchTimer = null;
-    _silenceWatchSongId = null;
-    if (!_shouldArmSilenceWatch()) return;
-    final song = currentSong.value;
-    if (song == null) return;
-    _silenceWatchSongId = song.id;
-    _silenceWatchTimer = Timer(_silenceGrace, _maybeHandleSilence);
-  }
-
-  /// 无声看门狗到点：判断「位置照常推进但可能无声」，升级 media_kit 重播。
-  Future<void> _maybeHandleSilence() async {
-    _silenceWatchTimer = null;
-    // 守卫：歌未变、仍在播、位置确有推进、不在错误恢复中。
-    final song = currentSong.value;
-    if (song == null || _silenceWatchSongId != song.id) return;
-    if (_recoveringCurrentSource || _restoringState) return;
-    if (!isPlaying.value || !_activeEngine.playing) return;
-    if (position.value < _silenceMinAdvance) return;
-
-    _debugLog(
-      'possible silent playback song=${song.title} '
-      'pos=${position.value}',
-    );
-    final seekPos = position.value;
-    final wasPlaying = isPlaying.value;
-    _silenceWatchEscalatedSongIds.add(song.id);
-
-    _recoveringCurrentSource = true;
-    try {
-      // 仅该歌升级 media_kit 重播（复用 FLAC 帧超限升级路径）。
-      _mediaKitEscalateSongIds.add(song.id);
-      FeiNiuTranscodeService.instance.invalidate(song.id);
-      _applyEngineKinds(await _computeEngineKinds(queue.value));
-      await _activateLogicalIndex(
-        currentIndex.value,
-        initialPosition: seekPos > Duration.zero ? seekPos : null,
-      );
-      if (wasPlaying) {
-        await _startPlayback();
-      }
-      // mpv 初次加载后立即 seek 会失败（error running command _command(seek)），
-      // 此前表现为「播放 3 秒后整首歌退回 0 秒重播」。延迟半秒（等 mpv
-      // 流就绪）重试一次，保住升级前的进度；再失败维持从 0 播的旧行为。
-      if (seekPos > Duration.zero) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        try {
-          await _activeEngine.seek(seekPos);
-        } catch (_) {
-          // 重试仍失败：接受从头播放，不再打断。
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('PlayerService silence recovery failed: $e');
-      }
-    } finally {
-      _recoveringCurrentSource = false;
-    }
-  }
-
   Future<void> togglePlayPause() async {
     if (isCasting.value) {
       // 投屏遥控模式：由投屏设备当前状态决定播放/暂停。
@@ -2819,6 +2733,31 @@ class PlayerService with WidgetsBindingObserver {
     await _applyEngineSpeed(_activeEngine);
   }
 
+  /// 全局「解码引擎」设置变更后立即生效：重算整个队列的引擎并按新引擎重载
+  /// 当前曲（保留进度与播放/暂停状态）。由解码引擎设置页调用。
+  ///
+  /// 会清掉当前曲的自动升级标记——用户显式改设置后，理应重新按新引擎评估，
+  /// 而不是继续沿用上一轮的失败记忆。
+  Future<void> refreshDecoderRouting() async {
+    await _initFuture;
+    final song = currentSong.value;
+    final idx = currentIndex.value;
+    if (song == null || idx < 0) return;
+    final seekPos = position.value;
+    final wasPlaying = isPlaying.value;
+    _debugLog(
+      'refreshDecoderRouting -> ${AppPlaybackEngineSettings.mode.value.name}',
+    );
+    _mediaKitEscalateSongIds.remove(song.id);
+    FeiNiuTranscodeService.instance.invalidate(song.id);
+    _applyEngineKinds(await _computeEngineKinds(queue.value));
+    await _activateLogicalIndex(
+      idx,
+      initialPosition: seekPos > Duration.zero ? seekPos : null,
+    );
+    if (wasPlaying) await _startPlayback();
+  }
+
   /// 手动切换当前歌曲的解码引擎（系统解码 just_audio / FFmpeg media_kit），
   /// 并立即用新引擎重载当前曲（保持播放/暂停状态与进度）。
   ///
@@ -3324,10 +3263,6 @@ class PlayerService with WidgetsBindingObserver {
 
   Future<void> _pausePlayback() async {
     _debugLog('pausePlayback song=${currentSong.value?.title ?? 'none'}');
-    // 暂停不检测无声：取消看门狗，避免暂停态误触发升级。
-    _silenceWatchTimer?.cancel();
-    _silenceWatchTimer = null;
-    _silenceWatchSongId = null;
     _stopBackgroundAudioKeepAlive();
     await _activeEngine.pause();
     _syncPositionFromPlayer(
@@ -3844,8 +3779,6 @@ class PlayerService with WidgetsBindingObserver {
       bufferedPosition.value = Duration.zero;
       duration.value = null;
     }
-    // 歌曲切换：重新 arm 无声看门狗（取消旧 timer，按新歌条件决定）。
-    _restartSilenceWatch();
     _emitSnapshot(force: true);
   }
 
@@ -4156,8 +4089,6 @@ class PlayerService with WidgetsBindingObserver {
       _handleExclusiveFocusChanged,
     );
     cancelSleepTimer();
-    _silenceWatchTimer?.cancel();
-    _silenceWatchTimer = null;
     _statsFlushTimer?.cancel();
     _statsService.flush();
     await _interruptionSub?.cancel();
