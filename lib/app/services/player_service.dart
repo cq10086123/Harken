@@ -2762,8 +2762,8 @@ class PlayerService with WidgetsBindingObserver {
   /// 并立即用新引擎重载当前曲（保持播放/暂停状态与进度）。
   ///
   /// 覆盖写进 [_forcedEngineKinds]，仅当前歌曲命中、优先于默认路由；
-  /// **不参与**现有自动升级（_mediaKitEscalateSongIds）与无声看门狗逻辑，
-  /// 切歌后新歌曲不命中即自动失效。
+  /// **不参与**自动升级（_mediaKitEscalateSongIds）逻辑，切歌后新歌曲
+  /// 不命中即自动失效。
   Future<void> setDecoderEngine(EngineKind kind) async {
     final song = currentSong.value;
     final idx = currentIndex.value;
