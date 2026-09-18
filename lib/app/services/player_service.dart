@@ -2094,6 +2094,17 @@ class PlayerService with WidgetsBindingObserver {
       if (wasPlaying) {
         await _startPlayback();
       }
+      // mpv 初次加载后立即 seek 会失败（error running command _command(seek)），
+      // 此前表现为「播放 3 秒后整首歌退回 0 秒重播」。延迟半秒（等 mpv
+      // 流就绪）重试一次，保住升级前的进度；再失败维持从 0 播的旧行为。
+      if (seekPos > Duration.zero) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        try {
+          await _activeEngine.seek(seekPos);
+        } catch (_) {
+          // 重试仍失败：接受从头播放，不再打断。
+        }
+      }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PlayerService silence recovery failed: $e');
