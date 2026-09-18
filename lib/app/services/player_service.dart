@@ -2219,16 +2219,20 @@ class PlayerService with WidgetsBindingObserver {
         await _startRoamFromPending();
         return;
       }
-      // 队尾无下一首：先尝试追加（漫游/预取）。追加成功就放新追加的这首；
-      // 追加不到（离线 / 本地队列）就重排新一轮继续放——手动切下一首
-      // 不该被卡在队尾。
-      final beforeLen = list.length;
-      if (idx >= list.length - 1) {
-        await _extendRoamQueue();
+      if (idx < list.length - 1) {
+        // 队列中间：按打乱后的顺序前进（随机序即队列顺序）。
+        // **这里必须显式前进再返回**：分支一旦进入不能什么都不做就返回——
+        // v1.7.11 首版就是漏了这条，随机模式下「下一首」彻底失灵（真机复现）。
+        await _advanceToLogicalIndex(idx + 1);
+        return;
       }
+      // 队尾：先尝试漫游追加；追加成功放新追加的这首，否则重排新一轮继续放
+      // ——手动切下一首不该被卡在队尾。
+      final beforeLen = list.length;
+      await _extendRoamQueue();
       if (queue.value.length > beforeLen) {
         await _advanceToLogicalIndex(idx + 1);
-      } else if (idx >= list.length - 1) {
+      } else {
         await _startNewShuffleRound();
       }
       return;
