@@ -356,11 +356,13 @@ jobs:
 
           # 1) 优先取 CHANGELOG.md 的 ## v<版本> 小节（面向用户的整理版）
           if [ -f CHANGELOG.md ]; then
+            # 去 CR：CHANGELOG 若被 Windows 编辑器改成 CRLF，awk 的整行比较会失配
+            tr -d '\r' < CHANGELOG.md > changelog_clean.md
             awk -v ver="$VERSION" '
               $0 == "## v" ver { found = 1; next }
               found && $0 ~ /^## v/ { exit }
               found { print }
-            ' CHANGELOG.md > changelog_section.txt
+            ' changelog_clean.md > changelog_section.txt
           fi
 
           # 2) 有整理版就用它，否则回退到「上一 tag → HEAD」的提交列表
