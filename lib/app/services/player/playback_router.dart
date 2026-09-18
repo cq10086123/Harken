@@ -14,6 +14,8 @@ import 'player_engine.dart';
 /// - **media_kit**：
 ///   - 黑名单格式（dsf/dff/dsd/wma/ape/dts/aiff…）：ExoPlayer 原生无法解码，
 ///     media_kit 直连原始流，FFmpeg 软解。
+///   - codec 未知 + 可疑容器（m4a/aac/mp4/mkv…）：首发即 media_kit，避免
+///     「先跑系统解码、3 秒后无声看门狗升级」造成的中断/回退（旧策略）。
 ///   - 黑名单 codec（eac3/ac3/alac/dts/truehd/mlp…）：M4A/MP4 容器内常见的
 ///     环绕声/无损编码，ExoPlayer 设备解码器支持因设备而异（解码器不可用或
 ///     静默失败时进度条走但无声音），media_kit（FFmpeg）必定出声。
@@ -38,6 +40,15 @@ EngineKind routeForFormat(String? format, {String? codec}) {
   // codec 判断优先：eac3/ac3/alac 等 ExoPlayer 设备解码不可靠的编码直接
   // 走 media_kit（FFmpeg），即使容器是 m4a（format 不在黑名单）。
   if (FeiNiuTranscodeService.isMediaKitCodec(codec)) {
+    return EngineKind.mediaKit;
+  }
+  // codec 未知 + 可疑容器（m4a/m4b/mp4/aac/mkv…）：ExoPlayer 设备解码器
+  // 可能静默失败。旧策略是「先在系统解码器上跑，无声看门狗约 3 秒后升级
+  // media_kit」——设备解码正常时纯属误伤，且切换瞬间的 seek 失败会让
+  // 整首歌从头重播。改为**路由层首发 media_kit**：没有中途切换就没有
+  // 中断，任何设备都必定出声。看门狗仅保留给手动切回系统解码的场景。
+  if (codec == null &&
+      FeiNiuTranscodeService.isRiskySilenceContainer(format)) {
     return EngineKind.mediaKit;
   }
   if (format == null || format.isEmpty) return EngineKind.justAudio;
