@@ -347,7 +347,8 @@ String normalizeWebDavEndpoint(String raw) {
   final uri = Uri.tryParse(t);
   if (uri == null || uri.host.isEmpty) return t;
   var path = uri.path;
-  while (path.length > 1 && path.endsWith('/')) {
+  // 根路径（'/'）也要剥：'https://nas.lan/' 应归一为 'https://nas.lan'。
+  while (path.isNotEmpty && path.endsWith('/')) {
     path = path.substring(0, path.length - 1);
   }
   // Dart 的 Uri 没有 isDefaultPort，手写默认端口判断（http:80 / https:443）
