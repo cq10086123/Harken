@@ -19,7 +19,7 @@ class LocalSongBuilder {
 
   /// 本地歌的歌手 guid 前缀。
   ///
-  /// 本地文件没有服务端 guid，但 `SongEntity.artistGuids` 被聚合页读取
+  /// 本地文件没有服务端 guid，但 `SongEntity.artistGuids` 被聚合页和批量匹配
   /// 读取，留空会让「按歌手分组」全部塌成一堆 null。用**名字派生的确定性
   /// guid**：同名歌手稳定聚合，且前缀命名空间保证永不与飞牛 guid 撞车。
   static const String artistGuidPrefix = 'local-artist:';
