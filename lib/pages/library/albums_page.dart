@@ -10,9 +10,10 @@ import 'package:signals_flutter/signals_flutter.dart';
 import '../../app/router/app_page_route.dart';
 import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
-import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/feiniu/api_models.dart';
+import '../../app/services/source/local/local_library_service.dart';
 import '../../app/state/settings_state.dart';
+import '../../app/state/song_state.dart';
 import '../../app/tv/tv_layout.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -99,9 +100,21 @@ class _AlbumsPageState extends State<AlbumsPage>
   late final _loadingMore = createSignal(false);
   late final _isRefreshing = createSignal(false);
   late final _groups = createSignal<List<AlbumGroup>>([]);
+
+  /// 本地音源专辑分组（与远端分开存）。
+  ///
+  /// **不能混进 `_groups`**：`_groups.value.length` 参与分页 hasMore 判定，
+  /// 混入本地条目会让「还有更多」提前变 false（少加载远端页）。
+  late final _localGroups = createSignal<List<AlbumGroup>>([]);
   late final _sortMode = createSignal(albumsDefaultSortMode);
   late final _ascending = createSignal(albumsDefaultAscending);
   late final _gridColumns = createSignal(2);
+
+  /// 展示用列表 = 远端分组 + 本地分组（本地排在最后）。
+  List<AlbumGroup> get _displayGroups => [
+        ..._groups.value,
+        ..._localGroups.value,
+      ];
 
   int _currentPage = 1;
   bool _hasMore = true;
@@ -227,50 +240,55 @@ class _AlbumsPageState extends State<AlbumsPage>
     );
   }
 
-  /// 本地音源专辑分组：从数据库读本地歌按专辑聚合。
-  /// 远端已存在同名专辑时跳过（同名双份会造成混淆）。
+  /// 本地音源专辑分组：从本地库按专辑聚合。
+  ///
+  /// **不再「与远端同名则跳过」**：同名不代表同一张专辑（本地文件夹名与
+  /// 服务器专辑重名很常见），跳过会让用户以为「扫进来的歌没进专辑页」。
+  /// 改为按已追加的本地组名去重，重复调用幂等。
   Future<List<AlbumGroup>> _loadLocalAlbumGroups() async {
-    try {
-      final songs = await SongDao.instance.fetchLocalSongs();
-      if (songs.isEmpty) return const [];
-      final counts = <String, int>{};
-      final covers = <String, String>{};
-      for (final s in songs) {
-        final name = (s.albumName?.isNotEmpty ?? false)
-            ? s.albumName!
-            : '未知专辑';
-        counts[name] = (counts[name] ?? 0) + 1;
-        // 取该专辑第一首有内嵌封面的歌作为专辑封面
-        final cover = s.localCoverPath;
-        if (cover != null &&
-            cover.isNotEmpty &&
-            !covers.containsKey(name)) {
-          covers[name] = cover;
-        }
-      }
-      final remoteNames =
-          _groups.value.map((g) => g.name.toLowerCase()).toSet();
-      final local = counts.entries
-          .where((e) => !remoteNames.contains(e.key.toLowerCase()))
-          .map((e) => AlbumGroup.local(
-            name: e.key,
-            songCount: e.value,
-            localCoverPath: covers[e.key],
-          ))
-          .toList();
-      local.sort((a, b) =>
+    final grouped = await LocalLibraryService.instance.byAlbum();
+    if (grouped.isEmpty) return const [];
+    final already = _localGroups.value
+        .map((g) => g.name.toLowerCase())
+        .toSet();
+    final local = grouped.entries
+        .where((e) => !already.contains(e.key.toLowerCase()))
+        .map((e) => AlbumGroup.local(
+              name: e.key,
+              songCount: e.value.length,
+              localCoverPath: _firstLocalCoverOf(e.value),
+            ))
+        .toList()
+      ..sort((a, b) =>
           a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      return local;
-    } catch (_) {
-      return const [];
-    }
+    return local;
   }
 
-  /// 把本地专辑组追加到当前列表尾部（远端数据就绪后调用）。
+  /// 取一组歌里第一张可用的本地封面（内嵌图已由扫描器落盘）。
+  String? _firstLocalCoverOf(List<SongEntity> songs) {
+    for (final s in songs) {
+      final cover = s.localCoverPath;
+      if (cover != null && cover.isNotEmpty) return cover;
+    }
+    return null;
+  }
+
+  /// 把本地专辑组挂到本地信号上（远端数据就绪后调用）。
   Future<void> _appendLocalAlbums() async {
     final local = await _loadLocalAlbumGroups();
-    if (!mounted || local.isEmpty) return;
-    _groups.value = [..._groups.value, ...local];
+    if (!mounted) return;
+    if (local.isEmpty) {
+      debugPrint(
+        '[AlbumsPage] 本地专辑：无新增（远端 ${_groups.value.length} 张，'
+        '本地已有 ${_localGroups.value.length} 张）',
+      );
+      return;
+    }
+    _localGroups.value = [..._localGroups.value, ...local];
+    debugPrint(
+      '[AlbumsPage] 追加本地专辑 ${local.length} 张: '
+      '${local.map((g) => g.name).toList()}',
+    );
   }
 
   Future<void> _init() async {
@@ -590,7 +608,8 @@ class _AlbumsPageState extends State<AlbumsPage>
 
   Widget _buildGrid(BuildContext context) {
     final theme = Theme.of(context);
-    final showIndexBar = _groups.value.isNotEmpty;
+    final groups = _displayGroups;
+    final showIndexBar = groups.isNotEmpty;
     return Stack(
       children: [
         CustomScrollView(
@@ -603,7 +622,7 @@ class _AlbumsPageState extends State<AlbumsPage>
                   : const EdgeInsets.fromLTRB(12, 0, 12, 160),
               sliver: SliverGrid(
                 delegate: SliverChildBuilderDelegate((context, index) {
-                  if (index >= _groups.value.length) {
+                  if (index >= groups.length) {
                     return const Center(
                       child: Padding(
                         padding: EdgeInsets.all(8),
@@ -615,7 +634,7 @@ class _AlbumsPageState extends State<AlbumsPage>
                       ),
                     );
                   }
-                  final g = _groups.value[index];
+                  final g = groups[index];
                   return InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: () {
@@ -701,7 +720,7 @@ class _AlbumsPageState extends State<AlbumsPage>
                       ),
                     ),
                   );
-                }, childCount: _groups.value.length + (_loadingMore.value ? 1 : 0)),
+                }, childCount: groups.length + (_loadingMore.value ? 1 : 0)),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: _adaptiveGridColumns(context),
                   crossAxisSpacing: 14,
@@ -723,10 +742,10 @@ class _AlbumsPageState extends State<AlbumsPage>
             bottom: 4,
             child: DraggableScrollbar(
               controller: _gridController,
-              itemCount: _groups.value.length,
+              itemCount: groups.length,
               itemExtent: 0,
               getLabel: (index) {
-                final name = _groups.value[index].name;
+                final name = groups[index].name;
                 if (name == '未知专辑') return '↑';
                 return IndexUtils.leadingLetter(name);
               },
