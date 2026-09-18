@@ -68,8 +68,8 @@ void main() {
         sourceId: 'webdav-1',
       );
       expect(song.isLocal, isFalse);
-      expect(streamKindFor(song), SongStreamKind.feiniuRemote,
-          reason: 'WebDAV 分支尚未接入前，非本地歌一律走既有远端链路');
+      expect(streamKindFor(song), SongStreamKind.webdavRemote,
+          reason: 'WebDAV 音源的歌走独立的 Basic Auth 远端链路');
     });
 
     test('分派是纯函数：同一首歌多次调用结果一致，不受外部状态影响', () {
