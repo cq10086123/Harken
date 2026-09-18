@@ -25,6 +25,7 @@ import 'network_connection_service.dart';
 import 'player/just_audio_engine.dart';
 import 'player/media_kit_engine.dart';
 import 'player/playback_router.dart';
+import 'player/shuffle_bag.dart';
 import 'player/player_engine.dart';
 import 'source/song_stream_dispatch.dart';
 import 'stats_service.dart';
@@ -122,6 +123,9 @@ class PlayerService with WidgetsBindingObserver {
   /// 一次引擎（模拟重启，自愈 mpv 病态状态）；重建后仍失败一整圈才停止，
   /// 防止坏源无限重建。
   bool _engineRebuiltForThisStreak = false;
+
+  /// 随机播放的洗牌袋（本轮已播历史）。见 [ShuffleBag] / [_playShuffleNext]。
+  final ShuffleBag _shuffleBag = ShuffleBag();
 
   /// 判定「歌曲确实在播」的位置阈值：位置推进超过它才算真实播放
   /// （用于区分 mpv「加载失败也报 completed」与真正播完）。
@@ -725,9 +729,11 @@ class PlayerService with WidgetsBindingObserver {
         return;
       }
     }
-    if (idx >= list.length - 1) {
-      // 逻辑队尾：漫游补链；loop 回卷到逻辑队首（可能跨引擎）。
-      if (playbackMode.value == PlaybackMode.shuffle) {
+    if (playbackMode.value == PlaybackMode.shuffle) {
+      // 随机播放：**任何一首播完都随机挑下一首**，而不是只有队尾才随机。
+      // 历史 bug：非队尾一律 idx+1 前进，于是「随机播放」和顺序播放没区别。
+      if (idx >= list.length - 1) {
+        // 逻辑队尾：云端队列先尝试漫游补链；本地/离线队列直接客户端随机。
         // 漫游只对「全是云端歌」的队列启用（见 setPlaybackMode）
         if (_roamStartPending && !list.any((s) => s.isLocal)) {
           _roamStartPending = false;
@@ -735,14 +741,12 @@ class PlayerService with WidgetsBindingObserver {
         }
         _roamStartPending = false;
         await _autoExtendQueue();
-        if (queue.value.length > list.length) {
-          await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
-          return;
-        }
-        // 队列到头：客户端随机接着放（离线/本地队列都能用）
-        await _playRandomNext();
-        return;
       }
+      await _playShuffleNext();
+      return;
+    }
+    if (idx >= list.length - 1) {
+      // 逻辑队尾：loop 回卷到逻辑队首（可能跨引擎）。
       if (playbackMode.value == PlaybackMode.loop) {
         await _activateLogicalIndex(0);
         try {
@@ -754,22 +758,23 @@ class PlayerService with WidgetsBindingObserver {
     await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
   }
 
-  /// 随机播放（客户端实现）：从当前队列里随机挑一首接着放。
+  /// 随机播放（客户端实现）：用洗牌袋挑下一首。
   ///
-  /// 服务端漫游（roam）是飞牛云端能力，未登录/离线调不通——过去失败被静默
-  /// 吞掉，表现为「切到随机播放后和顺序播放没区别」。本地队列与离线状态
+  /// 服务端漫游（roam）是飞牛云端能力，未登录/离线调不通——过去漫游失败被
+  /// 静默吞掉，表现为「切到随机播放后和顺序播放没区别」；而更根本的问题是
+  /// 非队尾一律顺序前进（见 [_handleEngineCompleted]）。本地队列与离线状态
   /// 一律走这里。
-  Future<void> _playRandomNext() async {
+  Future<void> _playShuffleNext() async {
     final list = queue.value;
-    if (list.length <= 1) return;
-    final current = currentIndex.value;
-    final rnd = Random();
-    var next = rnd.nextInt(list.length);
-    var guard = 0;
-    while (next == current && guard++ < 8) {
-      next = rnd.nextInt(list.length);
-    }
-    _debugLog('shuffle(local) -> $next / ${list.length}');
+    final next = _shuffleBag.pick(
+      list.length,
+      (i) => list[i].id,
+      currentSong.value?.id,
+    );
+    if (next == null) return;
+    _debugLog(
+      'shuffle -> $next/${list.length}（本轮已放 ${_shuffleBag.history.length} 首）',
+    );
     await _advanceToLogicalIndex(next, resumePlayback: true);
   }
 
@@ -843,7 +848,16 @@ class PlayerService with WidgetsBindingObserver {
       final bounds = _runBounds(logicalIndex);
       final sameRun = cur >= bounds.start && cur <= bounds.end;
       if (sameRun) {
-        await _activeEngine.seekToNext();
+        // 同一 run 内跳转：相邻前进用引擎原生 seekToNext（更顺），
+        // **跨曲跳转**（随机播放 / 跳播）必须按索引定位——seekToNext 永远
+        // 只走相邻一首，用它做随机跳会静默退化成顺序播放（历史 bug）。
+        final engineCurrent = cur - bounds.start;
+        final engineTarget = logicalIndex - bounds.start;
+        if (engineTarget == engineCurrent + 1) {
+          await _activeEngine.seekToNext();
+        } else {
+          await _activeEngine.skipToIndex(engineTarget);
+        }
         if (shouldResume && !_activeEngine.playing) {
           try {
             await _activeEngine.play();
@@ -2137,15 +2151,18 @@ class PlayerService with WidgetsBindingObserver {
         await _startRoamFromPending();
         return;
       }
-      // 队尾无下一首：先拉取追加。等待追加完成（含在途请求）再前进，
-      // 避免 run 无源可切时 next 停在队尾。
+      // 队尾无下一首：先尝试追加（漫游/预取）。追加成功就放新追加的这首；
+      // 追加不到（离线 / 本地队列）就客户端随机挑一首——手动切歌不该被卡住。
+      final beforeLen = list.length;
       if (idx >= list.length - 1) {
         await _extendRoamQueue();
-        final afterList = queue.value;
-        if (idx >= afterList.length - 1) {
-          return; // 追加失败（网络异常）且仍无可播下一首：停留队尾
-        }
       }
+      if (queue.value.length > beforeLen) {
+        await _advanceToLogicalIndex(idx + 1);
+      } else {
+        await _playShuffleNext();
+      }
+      return;
     }
     final targetIdx = idx + 1;
     if (targetIdx >= queue.value.length) {
@@ -2453,6 +2470,16 @@ class PlayerService with WidgetsBindingObserver {
       }
       return;
     }
+    // 随机模式：回「本轮上一首听过的歌」（洗牌袋历史）。随机播放的
+    // 「上一首」本来就该是刚听过的那首，而不是队列里排在前面的那首。
+    if (playbackMode.value == PlaybackMode.shuffle) {
+      final list = queue.value;
+      final back = _shuffleBag.backIndex(list.length, (i) => list[i].id);
+      if (back != null) {
+        await _advanceToLogicalIndex(back);
+        return;
+      }
+    }
     final wasPlaying = _activeEngine.playing;
     final prev = idx - 1;
     // 同 run 判定用 _runBounds 覆盖范围（转码歌是单例 run，prev 虽同引擎但
@@ -2738,6 +2765,8 @@ class PlayerService with WidgetsBindingObserver {
         // 服务端漫游只在「已连接飞牛且队列全是云端歌」时有意义——
         // 本地队列走漫游会被换成服务器曲目，必须用客户端随机。
         final hasLocal = queue.value.any((s) => s.isLocal);
+        // 重新开始一轮随机：当前这首记为已播，避免「下一首还是它」。
+        _shuffleBag.reset(currentSong.value?.id);
         _roamStartPending =
             !hasLocal && (roamId == null || roamId!.isEmpty);
         await _applyPlaybackMode(mode);
@@ -3753,6 +3782,8 @@ class PlayerService with WidgetsBindingObserver {
     final safeIndex = currentQueueIndex.clamp(0, songs.length - 1);
     currentIndex.value = safeIndex;
     currentSong.value = songs[safeIndex];
+    // 换了一整套队列 = 重新开一轮随机（否则会按旧队列的已播记录跳过歌曲）。
+    _shuffleBag.reset(songs[safeIndex].id);
     _maybeProbeSong(songs[safeIndex]);
     _hydrateAndSetCurrentSong(songs[safeIndex]);
     _emitSnapshot(force: true);
