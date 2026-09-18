@@ -20,7 +20,6 @@ import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../components/index.dart';
 import '../../pages/search/search_page.dart';
 import 'library_detail_pages.dart';
-import 'library_metadata.dart';
 
 class AlbumsPage extends StatefulWidget {
   const AlbumsPage({super.key});
@@ -217,27 +216,6 @@ class _AlbumsPageState extends State<AlbumsPage>
     } finally {
       if (mounted) _loadingMore.value = false;
     }
-  }
-
-  void _applyMetadataUpdate(String guid, LibraryEntityMetadata metadata) {
-    if (!_groups.value.any((group) => group.album.guid == guid)) return;
-    final albums = replaceAlbumMetadata(
-      _groups.value.map((group) => group.album).toList(),
-      guid,
-      metadata,
-    );
-    final groups = albums.map(AlbumGroup.fromFeiNiuAlbum).toList();
-    _groups.value = groups;
-
-    unawaited(
-      ApiCacheManager.instance.set(
-        scope: 'album_list',
-        key: 'page=1&size=$_pageSize',
-        jsonData: jsonEncode(
-          groups.take(_pageSize).map((group) => group.toJson()).toList(),
-        ),
-      ),
-    );
   }
 
   /// 本地音源专辑分组：从本地库按专辑聚合。
@@ -644,10 +622,6 @@ class _AlbumsPageState extends State<AlbumsPage>
                             albumName: g.name,
                             // 本地专辑无飞牛 guid，详情页走数据库分支
                             albumGuid: g.isLocal ? null : g.album.guid,
-                            onMetadataChanged: (metadata) {
-                              if (!mounted) return;
-                              _applyMetadataUpdate(g.album.guid, metadata);
-                            },
                           ),
                         ),
                       );

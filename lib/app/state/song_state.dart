@@ -119,19 +119,6 @@ class SongEntity {
     }
   }
 
-  /// 解析全部 artist 的 guid 列表（供批量匹配回退原歌手用）。
-  List<String> get artistGuids {
-    try {
-      final list = jsonDecode(artist) as List<dynamic>;
-      return list
-          .map((e) => (e as Map<String, dynamic>)['guid'] as String?)
-          .whereType<String>()
-          .where((g) => g.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
 
   /// 解析第一个 artist 的 coverId（歌手自身图片）。
   ///

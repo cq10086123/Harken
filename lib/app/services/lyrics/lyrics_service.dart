@@ -7,11 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals/signals.dart';
 
 import '../player_service.dart';
-import '../../state/settings_lyric_auto_search.dart';
-import '../../state/settings_lyric_companion.dart';
 import '../../state/song_state.dart';
-import '../song_match/song_match_service.dart';
-import 'lyric_companion_service.dart';
 import 'lyrics_parser.dart';
 import 'lyrics_repository.dart';
 import 'lyricon_service.dart';
@@ -152,7 +148,6 @@ class LyricsService {
         prefs.getBool(_prefsLyriconHideTranslation) ?? false;
     _meizuEnabled = prefs.getBool(_prefsMeizuLyrics) ?? false;
     _viewForceKaraoke = prefs.getBool(_prefsViewForceKaraoke) ?? false;
-    await LyricAutoSearchSettings.ensureLoaded();
     await LyriconService.setServiceEnabled(_lyriconEnabled);
     if (!_lyriconEnabled) {
       _lyriconPosTimer?.cancel();
@@ -225,14 +220,7 @@ class LyricsService {
       if (seq != _loadSeq) return;
 
       if (lrc == null || lrc.trim().isEmpty) {
-        // 无歌词：若开启「播放无歌词音乐时自动搜索」，通过服务端增强数据源搜索。
-        // 需后端（FnMusicEnhance）可达。
-        var searched = lrc;
-        if (LyricAutoSearchSettings.enabled.value &&
-            SongMatchService.instance.available) {
-          searched = await _searchLyricForSong(song);
-          if (seq != _loadSeq) return;
-        }
+        final searched = lrc;
 
         if (searched == null || searched.trim().isEmpty) {
           snapshot.value = snapshot.value.copyWith(
@@ -291,42 +279,6 @@ class LyricsService {
         _meizuLastIndex = -1;
         await MeizuLyricsService.stopLyric();
       }
-    }
-  }
-
-  /// 通过数据源插件自动搜索歌曲歌词（「播放无歌词音乐时自动搜索」）。
-  ///
-  /// 命中后写入本地歌词缓存；「搜索到后自动回写到 NAS」开启且服务端增强
-  /// （FnMusicEnhance）可用（已配置地址）时，再同步写入 NAS。
-  /// 返回 LRC 文本；未命中返回 null。
-  Future<String?> _searchLyricForSong(SongEntity song) async {
-    try {
-      final lyrics = await SongMatchService.instance.fetchLyrics(
-        title: song.title,
-        artist: song.artistDisplayName,
-        album: song.albumDisplayName == '未知专辑' ? '' : song.albumDisplayName,
-        duration: song.durationMs ?? 0,
-      );
-      if (lyrics == null || lyrics.trim().isEmpty) return null;
-
-      // 命中歌词写入本地缓存（后续播放/搜索不再走网络）。
-      await _repo.saveLrcToCache(song.id, lyrics);
-
-      // 回写开关开启且服务端增强已配置地址时，同步写入 NAS。
-      // 真正可达性由 saveLyrics 内部 HTTP 决定（失败已 try/catch 静默）。
-      if (LyricAutoSearchSettings.writeBack.value &&
-          LyricCompanionSettings.enabled.value &&
-          LyricCompanionService.instance.available) {
-        try {
-          await LyricCompanionService.instance.saveLyrics(song.id, lyrics);
-        } catch (e) {
-          debugPrint('[Lyrics] ${song.title} 自动搜索歌词写入 NAS 失败: $e');
-        }
-      }
-      return lyrics;
-    } catch (e) {
-      debugPrint('[Lyrics] ${song.title} 自动搜索歌词失败: $e');
-      return null;
     }
   }
 
