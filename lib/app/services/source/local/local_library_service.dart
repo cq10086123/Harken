@@ -19,12 +19,23 @@ class LocalLibraryService {
 
   static final LocalLibraryService instance = LocalLibraryService._();
 
-  /// 全部本地歌曲（未标记删除），按标题排序。
+  /// 库内容版本号：WebDAV 扫描每批入库后自增。
+  ///
+  /// 列表页监听它做**节流刷新**（扫描中途也能看到歌陆续出现），
+  /// 而不必等整次扫描结束。
+  static final ValueNotifier<int> revision = ValueNotifier(0);
+
+  /// 本地 + WebDAV 歌曲（未标记删除），按标题排序。
+  ///
+  /// 两者同住 songs 表、同走「DB 读取」链路，页面无需区分；
+  /// WebDAV 歌的播放走各自的 Basic Auth 远端链路，与展示无关。
   Future<List<SongEntity>> songs() async {
     try {
-      final list = await SongDao.instance.fetchLocalSongs();
-      debugPrint('[LocalLibrary] 本地歌曲 ${list.length} 首');
-      return list;
+      final local = await SongDao.instance.fetchLocalSongs();
+      final webdav = await SongDao.instance.fetchWebDavSongs();
+      debugPrint('[LocalLibrary] 本地歌曲 ${local.length} 首、'
+          'WebDAV 歌曲 ${webdav.length} 首');
+      return [...local, ...webdav];
     } catch (e, st) {
       debugPrint('[LocalLibrary] 读取本地歌曲失败: $e\n$st');
       return const [];
@@ -68,7 +79,8 @@ class LocalLibraryService {
       final rows = await db.rawQuery(
         'SELECT s.* FROM ${DbConstants.tableSongStats} st '
         'JOIN ${DbConstants.tableSongs} s ON s.id = st.songId '
-        'WHERE s.isLocal = 1 AND COALESCE(s.isAudioFileDeleted, 0) = 0 '
+        "WHERE (s.isLocal = 1 OR s.sourceId LIKE 'webdav-%') "
+        'AND COALESCE(s.isAudioFileDeleted, 0) = 0 '
         'ORDER BY st.lastPlayedMs DESC LIMIT ?',
         [limit],
       );
