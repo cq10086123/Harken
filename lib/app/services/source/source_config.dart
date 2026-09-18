@@ -1,4 +1,5 @@
 import 'source_kind.dart';
+import 'webdav/webdav_scanner.dart';
 
 /// 一个音源实例的持久化配置。
 ///
@@ -205,7 +206,8 @@ class LocalSourceConfig extends AudioSourceConfig {
 /// [endpoint] 是主地址，[altEndpoints] 是同一台服务器的备用地址（家里内网 /
 /// 外出隧道）。扫描与播放先试主地址，再按序试备用，命中的会被缓存
 /// （见后续的 `WebDavEndpointResolver`）。
-class WebDavSourceConfig extends AudioSourceConfig {
+class WebDavSourceConfig extends AudioSourceConfig
+    implements WebDavSourceConfigLike {
   final String endpoint;
   final List<String> altEndpoints;
   final String username;
@@ -253,7 +255,18 @@ class WebDavSourceConfig extends AudioSourceConfig {
     final seen = <String>{};
     final result = <String>[];
     for (final raw in [endpoint, ...altEndpoints]) {
-      final t = normalizeWebDavEndpoint(raw);
+      final trimmed = raw.trim();
+      // 用户没写 scheme 时，除默认 https 外再补一个 http 候选：
+      // 内网 NAS 的 WebDAV（如 fnOS :5005）大多是明文 http，裸 IP
+      // 会先试 https（握手失败）再试 http，无需用户回头改地址。
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && trimmed.isNotEmpty) {
+        final http = normalizeWebDavEndpoint('http://$trimmed');
+        final https = normalizeWebDavEndpoint(trimmed);
+        if (https.isNotEmpty && seen.add(https)) result.add(https);
+        if (http.isNotEmpty && seen.add(http)) result.add(http);
+        continue;
+      }
+      final t = normalizeWebDavEndpoint(trimmed);
       if (t.isEmpty) continue;
       if (seen.add(t)) result.add(t);
     }
