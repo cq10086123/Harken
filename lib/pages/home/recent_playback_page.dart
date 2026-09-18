@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../../components/index.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/services/source/local/local_library_service.dart';
 import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
@@ -34,9 +36,21 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
   List<SongEntity> get multiSelectSongs => _songs.value;
 
   late final _allSongs = createSignal<List<SongEntity>>([]);
+
+  /// 本地音源的最近播放（与远端分开存，避免污染 `_allSongs` 的分页判定）。
+  late final _localRecent = createSignal<List<SongEntity>>([]);
   late final _songs = createSignal<List<SongEntity>>([]);
   late final _loading = createSignal(true);
   late final _loadingMore = createSignal(false);
+
+  /// 读取本地最近播放（按 song_stats.lastPlayedMs 倒序）。
+  Future<void> _loadLocalRecent() async {
+    final local = await LocalLibraryService.instance.recentlyPlayed();
+    if (!mounted) return;
+    _localRecent.value = local;
+    debugPrint('[RecentPlaybackPage] 本地最近播放 ${local.length} 首');
+    _applyFilter();
+  }
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -129,7 +143,11 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
   }
 
   void _applyFilter() {
-    final all = _allSongs.value;
+    // 远端 + 本地合并后再筛选（本地歌同样有播放记录）
+    final all = <SongEntity>[
+      ..._allSongs.value,
+      ..._localRecent.value,
+    ];
     if (_searchQuery.isEmpty) {
       _songs.value = all;
     } else {
@@ -143,6 +161,7 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
 
   Future<void> _loadHistory() async {
     _loading.value = true;
+    unawaited(_loadLocalRecent());
     const scope = 'recent-playback';
     const key = 'history-page1';
     // 断网兜底：先读本地持久缓存立即渲染，再后台刷新最新数据。
