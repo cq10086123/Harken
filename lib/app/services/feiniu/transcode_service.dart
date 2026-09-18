@@ -491,6 +491,10 @@ class FeiNiuTranscodeService {
   /// 拉取一次 metadata。并发调用去重：复用同一个在途 Future。
   /// metadata 失败返回 null（按无需处理，不阻塞播放）。
   Future<Map<String, dynamic>?> _resolveSpec(SongEntity song) async {
+    // 本地音源没有服务端元数据：直接返回 null，避免为每首本地歌发一次
+    // `/track/metadata` 请求（本地歌 codec 恒为空，构建播放队列时会逐首
+    // 走到这里；请求必然失败，纯属浪费且拖慢队列构建）。
+    if (song.isLocal) return null;
     final inflight = _formatInflight[song.id];
     if (inflight != null) return inflight;
 
