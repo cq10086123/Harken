@@ -55,8 +55,8 @@ void main() {
       expect(items.first.path, '/dav/a.flac');
     });
 
-    test('非法 XML 返回空列表（不抛异常）', () {
-      expect(parsePropfind('not xml <'), isEmpty);
+    test('非法 XML 显式抛错（不再静默吞成空列表）', () {
+      expect(() => parsePropfind('not xml <'), throwsA(isA<Exception>()));
     });
 
     test('文件名含 # 不被当 fragment 吃掉（路径已编码）', () {
