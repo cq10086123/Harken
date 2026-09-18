@@ -70,11 +70,15 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
     });
     AppPlaybackVolumeSettings.ensureLoaded();
     AppPlaybackSpeedSettings.ensureLoaded();
+    // 收藏变更广播：面板打开期间，在播放页/通知栏/列表任何一处收藏，
+    // 这里的红心都跟着变，不再停留在打开时读到的旧值。
+    FavoriteRouter.revision.addListener(_loadFavoriteState);
     _loadFavoriteState();
   }
 
   @override
   void dispose() {
+    FavoriteRouter.revision.removeListener(_loadFavoriteState);
     // 帧后复位：dispose 常在 widget tree 锁定期（sheet 关闭动画）执行，
     // 同步 notify 祖先会触发 "setState when widget tree was locked"。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -91,7 +95,8 @@ class _SongDetailSheetState extends State<SongDetailSheet> {
         _isFavorite = isFav;
         _loadingFavorite = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[SongDetailSheet] 读取收藏状态失败: $e');
       if (!mounted) return;
       setState(() => _loadingFavorite = false);
     }
