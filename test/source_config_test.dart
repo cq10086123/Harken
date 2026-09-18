@@ -193,8 +193,11 @@ void main() {
         endpoint: 'nas.lan/dav/',
         altEndpoints: ['https://nas.lan/dav', 'https://tunnel.example/dav'],
       );
+      // 无 scheme 的主地址：https 与 http 两个变体都进候选（内网 NAS
+      // 的 WebDAV 常是明文 http），备用地址与 https 变体重被去重。
       expect(src.allEndpoints, [
         'https://nas.lan/dav',
+        'http://nas.lan/dav',
         'https://tunnel.example/dav',
       ]);
     });
