@@ -12,6 +12,7 @@ import '../../app/services/feiniu/api_models.dart';
 import '../../app/services/feiniu/auth_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/services/source/local/local_library_service.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/tv/tv_layout.dart';
@@ -187,6 +188,8 @@ class _HomePageState extends State<HomePage>
       _loadPlaylists(),
       _loadRecentTracks(),
     ]);
+    // 并入本地音源内容（本地歌不该只存在于扫描结果里）
+    await _mergeLocalIntoHome();
     if (mounted) {
       _loading.value = false;
       _isRefreshing.value = false;
@@ -369,6 +372,29 @@ class _HomePageState extends State<HomePage>
       AppToast.showGlobal('获取漫游歌曲失败', type: ToastType.error);
       return null;
     }
+  }
+
+  /// 把本地音源内容并入首页的「最近播放 / 我的收藏」。
+  ///
+  /// 首页原本只读服务器 dashboard，本地歌看不到；这里在远端加载完成后
+  /// 合并本地内容（先剔除上一轮的本地条目再追加，重复调用不产生重复项）。
+  Future<void> _mergeLocalIntoHome() async {
+    final svc = LocalLibraryService.instance;
+    final recent = await svc.recentlyPlayed(limit: 10);
+    final favorites = await svc.favorites();
+    if (!mounted) return;
+    _recentSongs.value = [
+      ..._recentSongs.value.where((s) => !s.isLocal),
+      ...recent,
+    ];
+    _favoriteSongs.value = [
+      ..._favoriteSongs.value.where((s) => !s.isLocal),
+      ...favorites,
+    ];
+    debugPrint(
+      '[HomePage] 并入本地内容：最近播放 ${recent.length} 首、'
+      '收藏 ${favorites.length} 首',
+    );
   }
 
   Future<void> _loadFavorites() async {
