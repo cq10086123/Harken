@@ -14,6 +14,7 @@ import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/services/source/local/local_library_service.dart';
 import '../../app/state/settings_layout_state.dart';
+import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/song_state.dart';
 import '../../app/utils/api_cache_manager.dart';
 import '../../app/utils/deferred_page_init_mixin.dart';
@@ -21,6 +22,7 @@ import '../../app/utils/primary_tab_refresh_mixin.dart';
 import '../../components/index.dart';
 import '../search/search_page.dart';
 import '../library/library_detail_pages.dart';
+import '../library/folders_page.dart';
 import 'song_detail_sheet.dart';
 
 /// 音乐库（原歌曲页面）- 从飞牛 API 分页加载并展示所有歌曲
@@ -94,11 +96,22 @@ class _SongsPageState extends State<SongsPage>
   bool _hasMoreSongs = true;
 
   @override
+  DateTime _lastLocalSongsRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onLocalLibraryRevision() {
+    final now = DateTime.now();
+    if (now.difference(_lastLocalSongsRefresh).inMilliseconds < 2000) return;
+    _lastLocalSongsRefresh = now;
+    _appendLocalSongs();
+  }
+
   void initState() {
     super.initState();
     scheduleDeferredInit();
     _listController.addListener(_handleScroll);
     PlayerService.instance.currentSong.addListener(_handlePlayerSongChanged);
+    LocalLibraryService.revision
+        .addListener(_onLocalLibraryRevision);
   }
 
   @override
@@ -416,6 +429,21 @@ class _SongsPageState extends State<SongsPage>
     Navigator.pushNamed(context, AppRoutes.search, arguments: SearchCategory.song);
   }
 
+  /// 打开文件夹视图（服务端增强）。未开启时引导到设置页。
+  void _openFolders() {
+    if (LyricCompanionSettings.enabled.value) {
+      Navigator.of(context).push(
+        buildAppPageRoute((_) => const FoldersPage()),
+      );
+    } else {
+      AppToast.show(
+        context,
+        '请先在设置 → 元数据管理开启「服务端增强」',
+        type: ToastType.error,
+      );
+    }
+  }
+
   void _playSong(int index) {
     final songs = _displaySongs;
     if (songs.isEmpty) return;
@@ -596,6 +624,22 @@ class _SongsPageState extends State<SongsPage>
                             onTap: _hasMoreSongs ? _showLoadMoreDialog : null,
                           ),
                           const Spacer(),
+                          // 文件夹视图入口（服务端增强）
+                          InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: _openFolders,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              child: Icon(
+                                Icons.folder_outlined,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
