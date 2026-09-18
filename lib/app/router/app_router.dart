@@ -27,14 +27,20 @@ import '../../pages/settings/volume_settings_page.dart';
 import '../../pages/settings/launch_settings_page.dart';
 import '../../pages/settings/playback_engine_settings_page.dart';
 import '../../pages/settings/transcode_settings_page.dart';
+import '../../pages/settings/search_source_page.dart';
 import '../../pages/settings/sources/audio_sources_page.dart';
+import '../../pages/settings/match_settings_page.dart';
+import '../../pages/settings/metadata_match_settings_page.dart';
 import '../../pages/settings/dlna_settings_page.dart';
 import '../../pages/library/albums_page.dart';
 import '../../pages/library/artists_page.dart';
 import '../../pages/library/playlists_page.dart';
 import '../../pages/library/genres_page.dart';
+import '../../pages/library/folders_page.dart';
 import '../../pages/search/search_page.dart';
+import '../../pages/songs/batch_match_page.dart';
 import '../../app/state/settings_state.dart';
+import '../../app/state/song_state.dart';
 import '../../app/utils/primary_shell_scope.dart';
 import '../../components/layout/modern_navigation_bar.dart';
 import '../../components/list/song_multi_select_mixin.dart'
@@ -67,11 +73,16 @@ class AppRoutes {
   static const albums = '/albums';
   static const playlists = '/playlists';
   static const genres = '/genres';
+  static const folders = '/folders';
   static const recent = '/recent';
   static const favorites = '/favorites';
   static const search = '/search';
   static const profile = '/profile';
+  static const batchMatch = '/songs/batch-match';
+  static const dataSourceSettings = '/settings/data-sources';
   static const audioSources = '/settings/audio-sources';
+  static const matchSettings = '/settings/match';
+  static const metadataMatchSettings = '/settings/metadata-match';
   static const transcodeSettings = '/settings/transcode';
   static const playbackEngineSettings = '/settings/playback-engine';
   static const dlnaSettings = '/settings/dlna';
@@ -111,13 +122,21 @@ class AppRouter {
     AppRoutes.albums: (_) => const AlbumsPage(),
     AppRoutes.playlists: (_) => const PlaylistsPage(),
     AppRoutes.genres: (_) => const GenresPage(),
+    AppRoutes.folders: (_) => const FoldersPage(),
     AppRoutes.search: (context) => SearchPage(
       initialCategory: (ModalRoute.of(context)?.settings.arguments as SearchCategory?) ?? SearchCategory.song,
     ),
     AppRoutes.profile: (_) => const ProfilePage(),
     AppRoutes.recent: (_) => const RecentPlaybackPage(),
     AppRoutes.favorites: (_) => const FavoritePage(),
+    AppRoutes.batchMatch: (context) => BatchMatchPage(
+      songs: (ModalRoute.of(context)?.settings.arguments as List<dynamic>? ?? const [])
+          .cast<SongEntity>(),
+    ),
+    AppRoutes.dataSourceSettings: (_) => const SearchSourcePage(),
     AppRoutes.audioSources: (_) => const AudioSourcesPage(),
+    AppRoutes.matchSettings: (_) => const MatchSettingsPage(),
+    AppRoutes.metadataMatchSettings: (_) => const MetadataMatchSettingsPage(),
     AppRoutes.transcodeSettings: (_) => const TranscodeSettingsPage(),
     AppRoutes.playbackEngineSettings: (_) =>
         const PlaybackEngineSettingsPage(),
