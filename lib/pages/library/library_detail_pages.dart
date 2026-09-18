@@ -15,13 +15,10 @@ import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/services/source/local/local_media_kind.dart';
 
-import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/settings_playback_state.dart';
 import '../../app/state/song_state.dart';
 import '../../components/index.dart';
 import '../songs/song_detail_sheet.dart';
-import 'artist_album_edit_page.dart';
-import 'library_metadata.dart';
 
 List<String> splitArtists(String raw) {
   final text = raw.trim();
@@ -149,13 +146,11 @@ List<SongEntity> sortAlbumDetailSongs(
 class ArtistDetailPage extends StatefulWidget {
   final String artistName;
   final String? artistGuid;
-  final ValueChanged<LibraryEntityMetadata>? onMetadataChanged;
 
   const ArtistDetailPage({
     super.key,
     required this.artistName,
     this.artistGuid,
-    this.onMetadataChanged,
   });
 
   @override
@@ -226,33 +221,6 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
     }
     if (full.length > cap) full.removeRange(cap, full.length);
     return full;
-  }
-
-  /// 打开歌手编辑页；保存后刷新名称与歌曲列表（新 coverId 内嵌于重拉的歌曲）。
-  Future<void> _openEdit() async {
-    final guid = widget.artistGuid;
-    if (guid == null) return;
-    final previousCoverId = _artistCoverIdFor(_songs.value, guid);
-    final result = await Navigator.of(context).push<String>(
-      buildAppPageRoute(
-        (_) => ArtistAlbumEditPage(
-          kind: EntityEditKind.artist,
-          guid: guid,
-          name: _artistName,
-          coverId: _artistCoverIdFor(_songs.value, guid),
-        ),
-      ),
-    );
-    if (!mounted || result == null) return;
-    setState(() => _artistName = result);
-    await _load();
-    if (!mounted) return;
-    widget.onMetadataChanged?.call(
-      LibraryEntityMetadata(
-        name: _artistName,
-        coverId: _artistCoverIdFor(_songs.value, guid) ?? previousCoverId,
-      ),
-    );
   }
 
   Future<void> _load() async {
@@ -336,24 +304,6 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
                   MultiSelectToggleButton(enabled: true, onTap: exitMultiSelect),
                 ]
               : [
-                  if (widget.artistGuid != null)
-                    ValueListenableBuilder<bool>(
-                      valueListenable: LyricCompanionSettings.enabled,
-                      builder: (context, enabled, _) {
-                        final available = enabled;
-                        return IconButton(
-                          tooltip: available ? '编辑' : '需先启用服务端增强（设置 → 元数据管理）',
-                          icon: Icon(
-                            Icons.edit_outlined,
-                            color: available
-                                ? null
-                                : theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.4),
-                          ),
-                          onPressed: available ? _openEdit : null,
-                        );
-                      },
-                    ),
                   MultiSelectToggleButton(
                     enabled: false,
                     onTap: toggleMultiSelect,
@@ -663,13 +613,11 @@ class _ArtistDetailPageState extends State<ArtistDetailPage>
 class AlbumDetailPage extends StatefulWidget {
   final String albumName;
   final String? albumGuid;
-  final ValueChanged<LibraryEntityMetadata>? onMetadataChanged;
 
   const AlbumDetailPage({
     super.key,
     required this.albumName,
     this.albumGuid,
-    this.onMetadataChanged,
   });
 
   @override
@@ -773,33 +721,6 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
     }
     if (full.length > cap) full.removeRange(cap, full.length);
     return full;
-  }
-
-  /// 打开专辑编辑页；保存后刷新名称与歌曲列表（新 album.coverId 内嵌于重拉的歌曲）。
-  Future<void> _openEdit() async {
-    final guid = widget.albumGuid;
-    if (guid == null) return;
-    final previousCoverId = _songs.value.firstOrNull?.albumCoverId;
-    final result = await Navigator.of(context).push<String>(
-      buildAppPageRoute(
-        (_) => ArtistAlbumEditPage(
-          kind: EntityEditKind.album,
-          guid: guid,
-          name: _albumName,
-          coverId: _songs.value.firstOrNull?.albumCoverId,
-        ),
-      ),
-    );
-    if (!mounted || result == null) return;
-    setState(() => _albumName = result);
-    await _load();
-    if (!mounted) return;
-    widget.onMetadataChanged?.call(
-      LibraryEntityMetadata(
-        name: _albumName,
-        coverId: _songs.value.firstOrNull?.albumCoverId ?? previousCoverId,
-      ),
-    );
   }
 
   Future<void> _load() async {
@@ -974,24 +895,6 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                   MultiSelectToggleButton(enabled: true, onTap: exitMultiSelect),
                 ]
               : [
-                  if (widget.albumGuid != null)
-                    ValueListenableBuilder<bool>(
-                      valueListenable: LyricCompanionSettings.enabled,
-                      builder: (context, enabled, _) {
-                        final available = enabled;
-                        return IconButton(
-                          tooltip: available ? '编辑' : '需先启用服务端增强（设置 → 元数据管理）',
-                          icon: Icon(
-                            Icons.edit_outlined,
-                            color: available
-                                ? null
-                                : theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.4),
-                          ),
-                          onPressed: available ? _openEdit : null,
-                        );
-                      },
-                    ),
                   IconButton(
                     tooltip: '更多',
                     icon: const Icon(Icons.more_vert_rounded),
