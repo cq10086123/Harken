@@ -11,6 +11,7 @@ import '../services/lyrics/lyrics_service.dart';
 import '../services/feiniu/api_client.dart';
 import '../services/feiniu/api_models.dart';
 import '../services/feiniu/favorite_service.dart';
+import '../services/source/favorite_router.dart';
 import '../services/feiniu/track_service.dart';
 import '../state/song_state.dart';
 import '../state/settings_state.dart';
@@ -1210,8 +1211,8 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   void _refreshFavoriteState() {
     final song = player.snapshot.value.song;
     if (song == null) return;
-    // 从服务器查询收藏状态
-    FeiNiuFavoriteService.instance.isFavorite(song.id).then((fav) {
+    // 走通用收藏路由（本地歌查库、云端歌查服务器；离线也能点亮）
+    FavoriteRouter.instance.isFavorite(song).then((fav) {
       _updateFavorite(fav);
     });
   }
@@ -1265,7 +1266,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
       if (_isFavorite) {
         _debugLog('favorite remove action song=${song.title}');
         try {
-          await FeiNiuFavoriteService.instance.unfavorite(song.id);
+          await FavoriteRouter.instance.setFavorite(song, false);
           _updateFavorite(false);
         } catch (e) {
           _debugLog('unfavorite failed: $e');
@@ -1273,7 +1274,7 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
       } else {
         _debugLog('favorite add action song=${song.title}');
         try {
-          await FeiNiuFavoriteService.instance.favorite(song.id);
+          await FavoriteRouter.instance.setFavorite(song, true);
           _updateFavorite(true);
         } catch (e) {
           _debugLog('favorite failed: $e');
