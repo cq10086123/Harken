@@ -185,6 +185,15 @@ class _SettingsPageState extends State<SettingsPage> {
                         Navigator.pushNamed(context, AppRoutes.launchSettings),
                   ),
                   AppSettingTile(
+                    title: '解码引擎',
+                    subtitle: '手动指定系统解码 / FFmpeg 软解码',
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.playbackEngineSettings,
+                    ),
+                  ),
+                  AppSettingTile(
                     title: '转码设置',
                     subtitle: '大文件/无损文件服务器转码播放',
                     trailing: const Icon(Icons.chevron_right_rounded),
