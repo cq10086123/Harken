@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../state/song_state.dart';
 import '../db/dao/song_dao.dart';
 import '../feiniu/favorite_service.dart';
@@ -37,5 +39,34 @@ class FavoriteRouter {
       return;
     }
     await SongDao.instance.setFavorite(song.id, favorite);
+  }
+
+  /// 按 id 批量设置收藏（多选场景）。返回**失败条数**，0 表示全部成功。
+  ///
+  /// 调用方只拿到 id（拿不到 SongEntity），所以先在本地库按 id 反查：
+  /// 命中的是本地歌 → 写数据库；其余视为飞牛歌 → 走服务端批量接口。
+  /// 这样混选（本地 + 云端）也能各自落到正确的轨道上。
+  Future<int> setFavoriteByIds(List<String> ids, bool favorite) async {
+    if (ids.isEmpty) return 0;
+    try {
+      final local = await SongDao.instance.fetchByIds(ids);
+      final localIds = local
+          .where((s) => s.isLocal)
+          .map((s) => s.id)
+          .toSet();
+      for (final id in localIds) {
+        await SongDao.instance.setFavorite(id, favorite);
+      }
+      final remoteIds =
+          ids.where((id) => !localIds.contains(id)).toList();
+      if (remoteIds.isEmpty) return 0;
+      return favorite
+          ? await FeiNiuFavoriteService.instance.favoriteAll(remoteIds)
+          : await FeiNiuFavoriteService.instance
+                .unfavoriteAll(remoteIds);
+    } catch (e) {
+      debugPrint('[FavoriteRouter] 批量收藏失败: $e');
+      return ids.length;
+    }
   }
 }
