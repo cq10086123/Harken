@@ -152,22 +152,54 @@ class WebDavClient {
   /// 返回值**不含** [dirPath] 自身。
   Future<List<WebDavResource>> list(String dirPath) async {
     final ep = await resolveActiveEndpoint();
-    final res = await propfindFollowed(ep, dirPath, depth: '1');
+    var res = await propfindFollowed(ep, dirPath, depth: '1');
     if (res.statusCode != 207) {
       final status = res.statusCode;
       if (status == 401) {
         throw StateError('鉴权失败（401）——检查账号密码');
       }
-      if (status == 200 || status == 404) {
-        throw StateError(
-          '目录不存在或不是 WebDAV 服务（HTTP $status）',
-        );
-      }
       throw StateError('PROPFIND $dirPath 失败：HTTP $status');
     }
-    final all = parsePropfind(res.data as String);
+    var all = _parseListResponse(res, dirPath);
+    // 某些服务器对无尾斜杠的集合路径返回空 multistatus：补上斜杠重试一次。
+    if (all.isEmpty && !dirPath.endsWith('/')) {
+      res = await propfindFollowed(ep, dirPath + '/', depth: '1');
+      if (res.statusCode == 207) {
+        all = _parseListResponse(res, dirPath);
+      }
+    }
     final self = normalizeDirPath(dirPath);
     return all.where((r) => normalizeDirPath(r.path) != self).toList();
+  }
+
+  /// 解析 PROPFIND 响应体。**解析失败或空响应必须显式抛错**——曾经静默
+  /// 返回空列表，扫描「完成 0 首」却没有任何线索（真机踩坑）。
+  List<WebDavResource> _parseListResponse(
+    Response<dynamic> res,
+    String dirPath,
+  ) {
+    final status = res.statusCode;
+    final data = res.data;
+    String body;
+    if (data is String) {
+      body = data;
+    } else if (data is List<int>) {
+      body = utf8.decode(data, allowMalformed: true);
+    } else {
+      throw StateError(
+          'PROPFIND $dirPath 响应类型异常：HTTP $status，data=${data.runtimeType}');
+    }
+    if (body.trim().isEmpty) {
+      throw StateError(
+          'PROPFIND $dirPath 返回空响应体（HTTP $status）');
+    }
+    try {
+      return parsePropfind(body);
+    } catch (e) {
+      throw StateError(
+          'PROPFIND $dirPath 响应解析失败：$e；body 开头: '
+          '${body.substring(0, body.length > 150 ? 150 : body.length)}');
+    }
   }
 
   /// 连接测试：返回 (服务器根目录下的条目数)。
@@ -235,12 +267,7 @@ String normalizeDirPath(String raw) {
 /// 无前缀默认命名空间），因此按 localName 匹配而不是全名。
 List<WebDavResource> parsePropfind(String body) {
   final results = <WebDavResource>[];
-  late final XmlDocument doc;
-  try {
-    doc = XmlDocument.parse(body);
-  } on XmlException {
-    return results;
-  }
+  final doc = XmlDocument.parse(body);
   // 找出所有 localName == 'response' 的元素（multistatus 的直接/间接子级）。
   final responses = doc.descendantElements
       .where((e) => e.name.local == 'response')
