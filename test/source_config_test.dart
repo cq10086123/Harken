@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:feiniu_music/app/services/source/source_caps.dart';
 import 'package:feiniu_music/app/services/source/source_config.dart';
 import 'package:feiniu_music/app/services/source/source_kind.dart';
 
