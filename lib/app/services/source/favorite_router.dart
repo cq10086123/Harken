@@ -20,15 +20,27 @@ class FavoriteRouter {
 
   static const FavoriteRouter instance = FavoriteRouter._();
 
+  /// 收藏变更广播：任何一次收藏写入成功后自增。
+  ///
+  /// 为什么会需要它：收藏状态散落在多个界面（播放页红心、歌曲信息面板、
+  /// 通知栏图标……），而它们各自只在**打开或切歌时读一次**。在 A 处收藏后，
+  /// B 处的红心不会知道，就一直停在灰色。所有关心收藏的界面监听这里，
+  /// 收到变化后重读状态即可（见 [isFavorite]）。
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   /// 查询收藏状态。
-  Future<bool> isFavorite(SongEntity song) {
+  ///
+  /// 本地歌**以数据库为准**：入参 [song] 常常是列表/队列构建时的快照，
+  /// 收藏后没人回写它，照着它渲染会让红心永远点不亮（历史 bug）。
+  Future<bool> isFavorite(SongEntity song) async {
     if (isFeiniuRemoteSong(song)) {
       return FeiNiuFavoriteService.instance.isFavorite(song.id);
     }
-    return Future.value(song.isFavorite);
+    final fresh = await SongDao.instance.favoriteStateOf(song.id);
+    return fresh ?? song.isFavorite;
   }
 
-  /// 设置收藏状态。
+  /// 设置收藏状态。写入成功后广播一次（见 [revision]）。
   Future<void> setFavorite(SongEntity song, bool favorite) async {
     if (isFeiniuRemoteSong(song)) {
       if (favorite) {
@@ -36,9 +48,11 @@ class FavoriteRouter {
       } else {
         await FeiNiuFavoriteService.instance.unfavorite(song.id);
       }
+      revision.value++;
       return;
     }
     await SongDao.instance.setFavorite(song.id, favorite);
+    revision.value++;
   }
 
   /// 按 id 批量设置收藏（多选场景）。返回**失败条数**，0 表示全部成功。
@@ -59,11 +73,16 @@ class FavoriteRouter {
       }
       final remoteIds =
           ids.where((id) => !localIds.contains(id)).toList();
-      if (remoteIds.isEmpty) return 0;
-      return favorite
+      if (remoteIds.isEmpty) {
+        revision.value++;
+        return 0;
+      }
+      final failed = favorite
           ? await FeiNiuFavoriteService.instance.favoriteAll(remoteIds)
           : await FeiNiuFavoriteService.instance
                 .unfavoriteAll(remoteIds);
+      revision.value++;
+      return failed;
     } catch (e) {
       debugPrint('[FavoriteRouter] 批量收藏失败: $e');
       return ids.length;
