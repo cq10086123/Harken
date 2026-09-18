@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:feiniu_music/app/services/player/player_engine.dart';
 import 'package:feiniu_music/app/services/player/playback_router.dart';
+import 'package:feiniu_music/app/state/settings_playback_engine_state.dart';
 import 'package:feiniu_music/app/state/song_state.dart';
 
 /// 构造带 format/codec 的歌曲（两者都显式给值 → routeForSong 零网络开销）。
@@ -41,15 +42,9 @@ void main() {
       );
     });
 
-    test('M4A + codec 未知 → justAudio（保持现状，交给无声看门狗兜底）', () {
-      expect(
-        routeForFormat('m4a'),
-        EngineKind.justAudio,
-      );
-      expect(
-        routeForFormat('m4a', codec: null),
-        EngineKind.justAudio,
-      );
+    test('M4A + codec 未知 → mediaKit（风险容器首发 FFmpeg，看门狗已移除）', () {
+      expect(routeForFormat('m4a'), EngineKind.mediaKit);
+      expect(routeForFormat('m4a', codec: null), EngineKind.mediaKit);
     });
 
     test('format 黑名单仍生效：dsf 即使 codec=aac 也走 mediaKit', () {
@@ -73,6 +68,26 @@ void main() {
     test('null/空 format + 普通 codec → justAudio', () {
       expect(routeForFormat(null, codec: 'aac'), EngineKind.justAudio);
       expect(routeForFormat('', codec: 'aac'), EngineKind.justAudio);
+    });
+  });
+
+  group('全局解码引擎手动模式', () {
+    tearDown(() {
+      AppPlaybackEngineSettings.mode.value = PlaybackEngineMode.auto;
+    });
+
+    test('系统解码模式：任何格式都走 justAudio', () {
+      AppPlaybackEngineSettings.mode.value = PlaybackEngineMode.system;
+      expect(routeForFormat('dsf', codec: 'eac3'), EngineKind.justAudio);
+      expect(routeForFormat('m4a'), EngineKind.justAudio);
+      expect(routeForFormat('flac'), EngineKind.justAudio);
+    });
+
+    test('FFmpeg 模式：任何格式都走 mediaKit', () {
+      AppPlaybackEngineSettings.mode.value = PlaybackEngineMode.ffmpeg;
+      expect(routeForFormat('mp3', codec: 'mp3'), EngineKind.mediaKit);
+      expect(routeForFormat(null), EngineKind.mediaKit);
+      expect(routeForFormat('flac'), EngineKind.mediaKit);
     });
   });
 
