@@ -359,7 +359,8 @@ jobs:
             # 去 CR：CHANGELOG 若被 Windows 编辑器改成 CRLF，awk 的整行比较会失配
             tr -d '\r' < CHANGELOG.md > changelog_clean.md
             awk -v ver="$VERSION" '
-              $0 == "## v" ver { found = 1; next }
+              # 用前缀匹配：标题形如「## v1.7.6 — 2026-09-18」，全等比较会失配
+              index($0, "## v" ver) == 1 { found = 1; next }
               found && $0 ~ /^## v/ { exit }
               found { print }
             ' changelog_clean.md > changelog_section.txt
