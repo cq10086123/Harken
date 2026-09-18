@@ -7,7 +7,31 @@ enum PlaybackMode {
   shuffle,
   loop,
   single,
+
+  /// 顺序播放：播到队列末尾就停（不回卷、不补链）。
+  ///
+  /// 追加在枚举末尾而不是插到前面：枚举值可能被持久化，
+  /// 插值会打乱已有取值的含义。
+  sequential,
 }
+
+/// 播放模式循环顺序（点一下切到下一个）：
+/// 顺序播放 → 列表循环 → 单曲循环 → 随机播放 → 回到顺序。
+PlaybackMode nextPlaybackMode(PlaybackMode current) =>
+    switch (current) {
+      PlaybackMode.sequential => PlaybackMode.loop,
+      PlaybackMode.loop => PlaybackMode.single,
+      PlaybackMode.single => PlaybackMode.shuffle,
+      PlaybackMode.shuffle => PlaybackMode.sequential,
+    };
+
+/// 播放模式中文名（UI 提示用）。
+String playbackModeLabel(PlaybackMode mode) => switch (mode) {
+      PlaybackMode.sequential => '顺序播放',
+      PlaybackMode.loop => '列表循环',
+      PlaybackMode.single => '单曲循环',
+      PlaybackMode.shuffle => '随机播放',
+    };
 
 class PlaybackSnapshot {
   final SongEntity? song;
