@@ -85,10 +85,16 @@ int? episodeNumberOf(String title) {
   ];
   for (final pattern in patterns) {
     final match = pattern.firstMatch(title);
-    if (match != null) {
-      final value = int.tryParse(match.group(1) ?? match.group(0)!);
-      if (value != null) return value;
-    }
+    if (match == null) continue;
+    // 兜底正则 `\d{1,4}` **没有捕获组**，对它取 group(1) 会抛
+    // `RangeError: Value not in range: 1`。
+    // 历史事故：本地音乐专辑点进去 0 首——标题含数字但不含
+    // 「第X集/EP」格式时命中此分支，异常被详情页外层 catch 吞掉，
+    // 整张专辑变成空列表（有声书标题都是「第1集」，走的是有捕获组
+    // 的第一个正则，所以一直没暴露）。用 groupCount 判断后再取。
+    final raw = match.groupCount >= 1 ? match.group(1) : match.group(0);
+    final value = int.tryParse(raw ?? '');
+    if (value != null) return value;
   }
   return null;
 }
@@ -824,11 +830,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
           return s.albumGuid == 'local-album:${widget.albumName}';
         }).toList();
         if (!mounted) return;
-        _songs.value = sortAlbumDetailSongs(
-          matched,
-          sortKey: _sortKey.value,
-          ascending: _sortAscending.value,
-        );
+        _songs.value = _sortSafely(matched);
         _loading.value = false;
         return;
       } catch (e) {
@@ -842,12 +844,22 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
     _loading.value = false;
   }
 
+  /// 排序失败时回退为原始顺序——排序出问题不该让整张专辑变成 0 首。
+  List<SongEntity> _sortSafely(List<SongEntity> songs) {
+    try {
+      return sortAlbumDetailSongs(
+        songs,
+        sortKey: _sortKey.value,
+        ascending: _sortAscending.value,
+      );
+    } catch (e) {
+      debugPrint('[AlbumDetailPage] 排序失败，回退原始顺序: $e');
+      return songs;
+    }
+  }
+
   void _sortSongs() {
-    _songs.value = sortAlbumDetailSongs(
-      _songs.value,
-      sortKey: _sortKey.value,
-      ascending: _sortAscending.value,
-    );
+    _songs.value = _sortSafely(_songs.value);
   }
 
   void _showMoreSheet() {
