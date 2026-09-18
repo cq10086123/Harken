@@ -93,9 +93,10 @@ class SongDao {
   /// 未登录飞牛时收藏页的数据源。
   Future<List<SongEntity>> fetchFavoriteLocalSongs() async {
     final db = await DbHelper.instance.database;
+    // WebDAV 歌的收藏同样写本地列（它们在服务端不存在）。
     final rows = await db.query(
       DbConstants.tableSongs,
-      where: 'isLocal = 1 AND isFavorite = 1 '
+      where: "(isLocal = 1 OR sourceId LIKE 'webdav-%') AND isFavorite = 1 "
           'AND COALESCE(isAudioFileDeleted, 0) = 0',
       orderBy: 'title COLLATE NOCASE',
     );
@@ -131,6 +132,21 @@ class SongDao {
     if (rows.isEmpty) return null;
     final value = rows.first['isFavorite'];
     return value == 1 || value == true;
+  }
+
+  /// WebDAV 音源歌曲（sourceId 前缀 `webdav-`，未标记删除）。
+  ///
+  /// WebDAV 歌与本地歌同住 songs 表，靠 sourceId 前缀区分归属：
+  /// isLocal 恒为 0（不是本地文件），但库页面的展示/收藏/最近播放
+  /// 全部要包含它们。
+  Future<List<SongEntity>> fetchWebDavSongs() async {
+    final db = await DbHelper.instance.database;
+    final rows = await db.query(
+      DbConstants.tableSongs,
+      where: "sourceId LIKE 'webdav-%' AND COALESCE(isAudioFileDeleted, 0) = 0",
+      orderBy: 'title COLLATE NOCASE',
+    );
+    return rows.map(SongEntity.fromMap).toList();
   }
 
   Future<List<SongEntity>> fetchLocalSongs() async {
