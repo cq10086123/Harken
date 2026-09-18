@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
-import '../../app/services/feiniu/favorite_service.dart';
+import '../../app/services/source/favorite_router.dart';
 import '../../app/services/player_service.dart';
 import '../../app/services/song_match/song_match_service.dart';
 import '../../app/state/song_state.dart';
@@ -161,7 +161,7 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
     final ids = _selectedIds.value.toList();
     if (ids.isEmpty) return;
     final failed =
-        await FeiNiuFavoriteService.instance.favoriteAll(ids);
+        await FavoriteRouter.instance.setFavoriteByIds(ids, true);
     if (!mounted) return;
     final ok = ids.length - failed;
     AppToast.show(
@@ -179,7 +179,7 @@ mixin SongMultiSelectMixin<T extends StatefulWidget>
     final ids = _selectedIds.value.toList();
     if (ids.isEmpty) return;
     final failed =
-        await FeiNiuFavoriteService.instance.unfavoriteAll(ids);
+        await FavoriteRouter.instance.setFavoriteByIds(ids, false);
     if (!mounted) return;
     final removed = ids.length - failed;
     onSongsRemovedFromFavorite?.call(ids);
