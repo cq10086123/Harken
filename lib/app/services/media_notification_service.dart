@@ -10,8 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/lyrics/lyrics_service.dart';
 import '../services/feiniu/api_client.dart';
 import '../services/feiniu/api_models.dart';
-import '../services/feiniu/favorite_service.dart';
 import '../services/source/favorite_router.dart';
+import '../services/source/local/local_library_service.dart';
 import '../services/feiniu/track_service.dart';
 import '../state/song_state.dart';
 import '../state/settings_state.dart';
@@ -191,6 +191,9 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
 
   _FeiNiuAudioHandler(this.player) {
     player.snapshot.addListener(_syncFromPlayer);
+    // 收藏变更广播：App 内任何入口收藏/取消收藏后刷新通知栏红心
+    // （原来只在切歌时读一次，收藏后图标一直是灰的）。
+    FavoriteRouter.revision.addListener(_refreshFavoriteState);
     LyricsService.instance.currentLineText.addListener(_onLyricLineChanged);
     MediaNotificationSettings.showLyrics.addListener(
       _onNotificationSettingsChanged,
@@ -607,14 +610,23 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
   }
 
   Future<List<SongEntity>> _loadFavoriteSongs() async {
-    await _ensureApiAuth();
-    final pageData = await FeiNiuApiClient.instance.getFavoriteList(
-      page: 1,
-      size: 40,
-    );
-    return pageData.list
-        .map(FeiNiuTrackService.instance.trackToSongEntity)
-        .toList();
+    // 本地收藏 + 云端收藏合并：未登录/离线时车机与系统媒体库也能看到
+    // 本地已收藏的歌（原来只读服务端，离线必然为空）。
+    final local = await LocalLibraryService.instance.favorites();
+    try {
+      await _ensureApiAuth();
+      final pageData = await FeiNiuApiClient.instance.getFavoriteList(
+        page: 1,
+        size: 40,
+      );
+      final remote = pageData.list
+          .map(FeiNiuTrackService.instance.trackToSongEntity)
+          .toList();
+      return [...local, ...remote];
+    } catch (e) {
+      _debugLog('load remote favorites failed: $e');
+      return local;
+    }
   }
 
   Future<List<SongEntity>> _loadTracks() async {
@@ -1208,13 +1220,16 @@ class _FeiNiuAudioHandler extends BaseAudioHandler
     playbackState.add(_stateFromSnap(player.snapshot.value));
   }
 
-  void _refreshFavoriteState() {
+  Future<void> _refreshFavoriteState() async {
     final song = player.snapshot.value.song;
     if (song == null) return;
     // 走通用收藏路由（本地歌查库、云端歌查服务器；离线也能点亮）
-    FavoriteRouter.instance.isFavorite(song).then((fav) {
+    try {
+      final fav = await FavoriteRouter.instance.isFavorite(song);
       _updateFavorite(fav);
-    });
+    } catch (e) {
+      _debugLog('refresh favorite failed: $e');
+    }
   }
 
   void _updateFavorite(bool value) {
