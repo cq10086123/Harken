@@ -1,6 +1,7 @@
 import '../db/dao/playlist_dao.dart';
 import '../db/dao/song_dao.dart';
 import '../feiniu/playlist_service.dart';
+import 'song_stream_dispatch.dart';
 
 /// 通用分流的歌单引用（不区分服务端/本地）。
 class PlaylistRef {
@@ -66,7 +67,11 @@ class PlaylistRouter {
     }
     final entityById = await _entityById(ids);
     final remoteIds =
-        ids.where((id) => !(entityById[id]?.isLocal ?? false)).toList();
+        ids.where((id) {
+          final entity = entityById[id];
+          if (entity == null) return true; // 查不到的按远端处理（维持原行为）
+          return isFeiniuRemoteSong(entity);
+        }).toList();
     if (remoteIds.isEmpty) return false;
     await FeiNiuPlaylistService.instance.addTracks(playlist.id, remoteIds);
     return true;
@@ -76,7 +81,12 @@ class PlaylistRouter {
   /// 纯飞牛歌时保持原有服务端歌单行为。
   Future<PlaylistRef> createAndAdd(String name, List<String> ids) async {
     final entityById = await _entityById(ids);
-    final hasLocal = ids.any((id) => entityById[id]?.isLocal ?? false);
+    bool isDbSong(String id) {
+      final entity = entityById[id];
+      return entity != null && !isFeiniuRemoteSong(entity);
+    }
+
+    final hasLocal = ids.any(isDbSong);
     if (hasLocal) {
       final id = await PlaylistDao.instance.createLocalPlaylist(name);
       final entities = await SongDao.instance.fetchByIds(ids);
