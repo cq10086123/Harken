@@ -597,7 +597,12 @@ class PlayerService with WidgetsBindingObserver {
       }
       // 无损大文件（media_kit 直连原始流）对网络要求高：缓冲超时提示网络缓慢。
       // 仅当前激活的 media_kit 引擎 + 缓冲态持续超过阈值时提示一次（去重）。
-      if (identical(engine, _mediaKitEngine) && loading) {
+      // 本地文件与网络无关：缓冲慢只可能是文件/解码问题，不能提示
+      // 「网络缓慢」误导排查方向。
+      final playingLocalFile = currentSong.value?.isLocal ?? false;
+      if (identical(engine, _mediaKitEngine) &&
+          loading &&
+          !playingLocalFile) {
         _maybeNotifySlowNetwork();
       } else {
         _cancelSlowNetworkTimer();
@@ -1152,6 +1157,16 @@ class PlayerService with WidgetsBindingObserver {
     SongEntity song, {
     bool waitForLocal = false,
   }) async {
+    // 本地音源：直接让 mpv 读本地文件，不碰任何远端链路。
+    //
+    // 缺这一分支时本地歌会落到下方 `api.streamUrl(song.id)`——本地歌在
+    // 飞牛服务端并不存在，该地址永远打不开，表现为「一直加载中」并误报
+    // 网络缓慢。路径缺失不在此抛异常（本方法在 Future.wait 里调用，异常
+    // 会打断整队列构建），交给 mpv 报错走既有失败兜底跳歌。
+    if (song.isLocal) {
+      return mk.Media(localFilePathOf(song));
+    }
+
     // CUE 整轨曲目：跳过本地缓存（命中会拿到整轨文件，缺失会让后台把整轨
     // 下载一份），直连流 + Media(start/end) 裁剪定位。offset 解析失败时退化为
     // 不裁剪（整轨从头播，保持现状容错）。
@@ -3795,7 +3810,8 @@ class PlayerService with WidgetsBindingObserver {
   }) async {
     final rawUri = (song.uri ?? '').trim();
     if (!rawUri.startsWith('http')) {
-      return Uri.file(rawUri);
+      // 本地文件：直接返回 file URI，不做任何远端解析。
+      return Uri.file(localFilePathOf(song));
     }
 
     final headers = _headersFromSong(song);
@@ -4014,8 +4030,7 @@ class PlayerService with WidgetsBindingObserver {
         end: Duration(milliseconds: (offsetMs ?? 0) + durationMs),
       );
     }
-    final rawUri = (song.uri ?? '').trim();
-    return AudioSource.file(rawUri);
+    return AudioSource.file(localFilePathOf(song));
   }
 
   /// 构建转码歌的播放源：
