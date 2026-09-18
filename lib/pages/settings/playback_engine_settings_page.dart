@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/services/player_service.dart';
 import '../../app/state/settings_playback_engine_state.dart';
-import '../../app/state/settings_state.dart';
 import '../../components/index.dart';
 
 /// 解码引擎设置页：手动指定全局解码器（自动 / 系统解码 / FFmpeg 软解码）。
