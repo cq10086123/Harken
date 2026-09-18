@@ -27,6 +27,9 @@ import 'player/media_kit_engine.dart';
 import 'player/playback_router.dart';
 import 'player/player_engine.dart';
 import 'source/song_stream_dispatch.dart';
+import 'source/source_config.dart';
+import 'source/source_registry.dart';
+import 'source/webdav/webdav_client.dart';
 import 'stats_service.dart';
 import 'listening_recorder_service.dart';
 import 'volume_schedule_service.dart';
@@ -1191,6 +1194,14 @@ class PlayerService with WidgetsBindingObserver {
     // 会打断整队列构建），交给 mpv 报错走既有失败兜底跳歌。
     if (song.isLocal) {
       return mk.Media(localFilePathOf(song));
+    }
+    // WebDAV 音源：直连原始流 + Basic Auth 头。缓存/转码/CUE 全部不适用。
+    if (isWebDavRemoteSong(song)) {
+      final url = (song.uri ?? '').trim();
+      if (url.isEmpty) {
+        throw StateError('WebDAV 歌曲缺少 URL：${song.id}');
+      }
+      return mk.Media(url, httpHeaders: _webDavHeadersFor(song));
     }
 
     // CUE 整轨曲目：跳过本地缓存（命中会拿到整轨文件，缺失会让后台把整轨
@@ -3837,6 +3848,11 @@ class PlayerService with WidgetsBindingObserver {
       // 本地文件：直接返回 file URI，不做任何远端解析。
       return Uri.file(localFilePathOf(song));
     }
+    // WebDAV：URL 即最终地址（Basic Auth 走请求头，播放器自己带），
+    // 无需 302 预解析。失败重试也复用同一 URL。
+    if (isWebDavRemoteSong(song)) {
+      return Uri.parse(rawUri);
+    }
 
     final headers = _headersFromSong(song);
     final headersKey = _headersFingerprint(headers);
@@ -3977,6 +3993,23 @@ class PlayerService with WidgetsBindingObserver {
     }
   }
 
+  /// WebDAV 歌曲的 Basic Auth 头（按歌的 sourceId 找配置）。
+  ///
+  /// 配置被删除/停用时返回空头——URL 里没有凭据，请求会 401，由既有
+  /// 失败兜底跳歌，不在此抛异常打断整个队列构建。
+  Map<String, String> _webDavHeadersFor(SongEntity song) {
+    try {
+      final config = AudioSourceRegistry.instance
+          .configFor(song.effectiveSourceId);
+      if (config is WebDavSourceConfig) {
+        return webdavAuthHeaders(config.username, config.password);
+      }
+    } catch (e) {
+      debugPrint('[PlayerService] WebDAV 配置查找失败: $e');
+    }
+    return const {};
+  }
+
   Future<AudioSource> _sourceForSong(
     SongEntity song, {
     bool forceRefresh = false,
@@ -3988,6 +4021,18 @@ class PlayerService with WidgetsBindingObserver {
     // 服务器，**所有**歌都被当云端处理，本地文件反而播不了（飞牛与本地互斥）。
     // 现在本地音源的歌直接落到函数末尾的 `AudioSource.file(rawUri)`，
     // 缓存 / 服务端转码 / CUE 裁剪 / Cookie 这些只对飞牛有意义的路径全部跳过。
+    if (isWebDavRemoteSong(song)) {
+      // WebDAV：直连原始文件流，带 Basic Auth 头。不走飞牛的缓存/转码/
+      // CUE 任何链路——那些都对飞牛服务器才有意义。
+      final url = (song.uri ?? '').trim();
+      if (url.isEmpty) {
+        throw StateError('WebDAV 歌曲缺少 URL：${song.id}');
+      }
+      return AudioSource.uri(
+        Uri.parse(url),
+        headers: _webDavHeadersFor(song),
+      );
+    }
     if (isFeiniuRemoteSong(song) && api.baseUrl.isNotEmpty) {
       // 播放出错重试时删除损坏/过期的缓存，强制走远端
       if (forceRefresh) {
