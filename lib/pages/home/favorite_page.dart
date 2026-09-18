@@ -155,16 +155,28 @@ class _FavoritePageState extends State<FavoritePage>
     await _loadMoreToTarget(target);
   }
 
+  /// 服务端收藏与本地收藏合并（本地收藏去重靠 id）。
+  List<SongEntity> _mergeLocalFavorites(
+    List<SongEntity> server,
+    List<SongEntity> local,
+  ) {
+    final ids = server.map((s) => s.id).toSet();
+    return [...server, ...local.where((l) => !ids.contains(l.id))];
+  }
+
   Future<void> _load({bool forceRefresh = false}) async {
-    // 本地优先：未连接飞牛（未登录/离线）时，收藏页展示本地收藏
-    // （songs.isFavorite = 1），不调用服务端接口——否则 Dio 报
-    // No host specified，页面永远空白。
+    // 本地收藏：始终从本地库读取（无论是否登录，本地歌的收藏都在 DB）。
+    List<SongEntity> localFavorites = const [];
+    try {
+      localFavorites = await SongDao.instance.fetchFavoriteLocalSongs();
+    } catch (_) {}
+
+    // 未连接飞牛：服务端拿不到，只展示本地收藏。
     if (FeiNiuApiClient.instance.baseUrl.isEmpty) {
-      final locals = await SongDao.instance.fetchFavoriteLocalSongs();
       if (!mounted) return;
-      _total = locals.length;
+      _total = localFavorites.length;
       _hasMore = false;
-      _allSongs.value = locals;
+      _allSongs.value = localFavorites;
       _applyFilter();
       _loading.value = false;
       _isRefreshing.value = false;
@@ -194,7 +206,7 @@ class _FavoritePageState extends State<FavoritePage>
         final songs = await fetch();
         if (mounted) {
           _currentPage = 1;
-          _allSongs.value = songs;
+          _allSongs.value = _mergeLocalFavorites(songs, localFavorites);
           _applyFilter();
           _loading.value = false;
         }
@@ -215,7 +227,7 @@ class _FavoritePageState extends State<FavoritePage>
         if (mounted) {
           if (data != null) {
             _currentPage = 1;
-            _allSongs.value = data;
+            _allSongs.value = _mergeLocalFavorites(data, localFavorites);
             _applyFilter();
             _loading.value = false;
           }
@@ -238,7 +250,7 @@ class _FavoritePageState extends State<FavoritePage>
         // 缓存命中 → 全屏转圈消失，右上角转圈保持直到后台刷新结束
         if (mounted) {
           _currentPage = 1;
-          _allSongs.value = cached;
+          _allSongs.value = _mergeLocalFavorites(cached, localFavorites);
           _applyFilter();
           _loading.value = false;
         }
