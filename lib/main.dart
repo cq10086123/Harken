@@ -216,10 +216,13 @@ Future<void> main() async {
   // DLNA 投屏设置（播放页投屏按钮据此显示/隐藏）
   await _startupGuard(DlnaCastSettings.ensureLoaded(), 'DlnaCastSettings.ensureLoaded');
   // 桌面端「关闭按钮隐藏到托盘」（Windows/macOS 共用，默认开启）
-  await CloseToTraySettings.ensureLoaded();
+  await _startupGuard(
+    CloseToTraySettings.ensureLoaded(),
+    'CloseToTraySettings.ensureLoaded',
+  );
   // Windows 系统托盘：拦截关闭按钮 + 托盘菜单（播放控制/退出）。
   if (Platform.isWindows) {
-    await DesktopTrayService.init();
+    await _startupGuard(DesktopTrayService.init(), 'DesktopTrayService.init');
   }
   // 初始化自动重连服务（监听网络变化 + API 失败）
   FnAutoReconnectService.instance.init();
@@ -229,9 +232,12 @@ Future<void> main() async {
   // 自动备份：每天首次打开 App 时静默备份到已配置的 WebDAV 目标。
   // fire-and-forget，失败不阻塞启动。
   unawaited(BackupService.instance.maybeAutoBackupOnLaunch());
-  // 液体玻璃：预热 shader（非阻塞异步磁盘 I/O，0.30.x 保证 runApp 前零 GPU
-  // 调用，首帧不卡顿）。开关只决定渲染哪个组件分支，此处始终初始化。
-  await LiquidGlassWidgets.initialize();
+  // 液体玻璃：预热 shader（正常是异步磁盘 I/O，但在部分模拟器/GPU 上可能
+  // 挂起——不守卫就会永远卡在启动页）。超时跳过时玻璃组件走未预热分支。
+  await _startupGuard(
+    LiquidGlassWidgets.initialize(),
+    'LiquidGlassWidgets.initialize',
+  );
   // 用 LiquidGlassWidgets.wrap 包裹整个 App：
   // - brightnessResolver: Theme.maybeBrightnessOf —— MaterialApp 必须传，
   //   否则暗色模式下玻璃阴影/描边会消失；
