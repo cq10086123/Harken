@@ -909,7 +909,16 @@ class _PosterFavoriteButtonState extends State<_PosterFavoriteButton> {
   @override
   void initState() {
     super.initState();
+    // 收藏状态随全局广播刷新：在歌曲信息面板、通知栏、列表任何一处收藏，
+    // 这里的红心都跟着变，不再停在进入播放页时的旧值。
+    FavoriteRouter.revision.addListener(_loadFavoriteState);
     _loadFavoriteState();
+  }
+
+  @override
+  void dispose() {
+    FavoriteRouter.revision.removeListener(_loadFavoriteState);
+    super.dispose();
   }
 
   @override
@@ -941,7 +950,8 @@ class _PosterFavoriteButtonState extends State<_PosterFavoriteButton> {
         _isFavorite = fav;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[PlayerPage] 读取收藏状态失败: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
