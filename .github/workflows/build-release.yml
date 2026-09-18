@@ -345,11 +345,48 @@ jobs:
           VERSION="${{ inputs.version_name }}"
           [ -z "$VERSION" ] && VERSION="$PUB_NAME"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - name: 生成 release 说明
+      - name: 生成 release 说明（CHANGELOG 对应版本，缺失则回退提交列表）
         run: |
-          git log -1 --pretty=format:"- %s%n%b" > release_notes.txt
-          if [ ! -s release_notes.txt ]; then
-            echo "- ${GITHUB_SHA}" > release_notes.txt
+          # 上一版本 tag（当前版本的 tag 此时尚未创建，故 describe 拿到的是上一版）
+          PREV=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+
+          {
+            echo "**v$VERSION** · 提交 \`${GITHUB_SHA:0:7}\` · $(date -u '+%Y-%m-%d %H:%M UTC')"
+          } > release_notes.txt
+
+          # 1) 优先取 CHANGELOG.md 的 ## v<版本> 小节（面向用户的整理版）
+          if [ -f CHANGELOG.md ]; then
+            awk -v ver="$VERSION" '
+              $0 == "## v" ver { found = 1; next }
+              found && $0 ~ /^## v/ { exit }
+              found { print }
+            ' CHANGELOG.md > changelog_section.txt
+          fi
+
+          # 2) 有整理版就用它，否则回退到「上一 tag → HEAD」的提交列表
+          if [ -s changelog_section.txt ]; then
+            cat changelog_section.txt >> release_notes.txt
+          else
+            RANGE="HEAD"
+            [ -n "$PREV" ] && RANGE="$PREV..HEAD"
+            LOG=$(git log "$RANGE" --no-merges --pretty="- %s" || true)
+            FILTERED=$(printf '%s\n' "$LOG" | grep -v -e "^- docs:" -e "^- chore:" || true)
+            [ -z "$FILTERED" ] && FILTERED="$LOG"
+            [ -z "$FILTERED" ] && FILTERED="- 无代码变更（重新构建）"
+            {
+              echo
+              echo "### 本版提交"
+              echo
+              printf '%s\n' "$FILTERED"
+            } >> release_notes.txt
+          fi
+
+          # 3) 与上一版本的完整对比链接
+          if [ -n "$PREV" ]; then
+            {
+              echo
+              echo "**完整变更**：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREV}...v${VERSION}"
+            } >> release_notes.txt
           fi
       - name: 追加平台使用说明
         run: |
