@@ -275,6 +275,10 @@ class FeiNiuTranscodeService {
     SongEntity song, {
     bool respectWifiPolicy = true,
   }) async {
+    // 本地音源不转码：转码是**服务器**行为，本地文件在服务端没有会话，
+    // 请求必然失败（还会把播放带去 HLS）。缺此守卫时大体积本地无损文件
+    // 会因超过阈值被误送服务器。
+    if (song.isLocal) return false;
     // 桌面端（Windows/macOS/Linux）强制直连：转码产出 HLS（fMP4），
     // media_kit 的 mpv FFmpeg 音频库未编入 hls demuxer 播不了；
     // 全量走 media_kit 直连原始流即可。
