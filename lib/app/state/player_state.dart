@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 import 'package:signals/signals.dart';
 import 'song_state.dart';
@@ -34,26 +32,6 @@ String playbackModeLabel(PlaybackMode mode) => switch (mode) {
       PlaybackMode.single => '单曲循环',
       PlaybackMode.shuffle => '随机播放',
     };
-
-/// 随机播放的队列重排：**保留 [keepIndex] 及其之前的原顺序**（已经播过的
-/// 部分、以及当前正在播的这首都不动），把之后的尾部随机打乱。
-///
-/// 为什么打乱「顺序」而不是「播完再随机挑一首」：播放引擎把整段同引擎歌曲
-/// 作为一个播放列表原生连续播放，中间某首播完是引擎自己前进的，应用层拿不到
-/// 插话机会（只有整段结尾才收到 completed 回调）。也就是说在「播完再挑」的
-/// 模型下，随机永远只在整段末尾生效一次，听感就是顺序播放。把顺序本身打乱后，
-/// 引擎怎么前进都是随机序，而且队列页显示的顺序与实际播放顺序始终一致。
-///
-/// 纯函数（无副作用、[random] 可注入）→ 见 `test/shuffle_order_test.dart`。
-List<T> shuffledTailOrder<T>(List<T> items, int keepIndex, {Random? random}) {
-  if (items.length <= 2) return List<T>.of(items);
-  final idx = keepIndex < 0
-      ? 0
-      : (keepIndex >= items.length ? items.length - 1 : keepIndex);
-  final head = items.sublist(0, idx + 1);
-  final tail = items.sublist(idx + 1).toList()..shuffle(random ?? Random());
-  return <T>[...head, ...tail];
-}
 
 class PlaybackSnapshot {
   final SongEntity? song;
