@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../feiniu/transcode_service.dart';
+import '../../state/settings_playback_engine_state.dart';
 import '../../state/song_state.dart';
 import 'player_engine.dart';
 
@@ -25,6 +26,10 @@ import 'player_engine.dart';
 ///
 /// 未知/空格式走 just_audio 直连（与现状一致）：格式探测延后，播放出错由
 /// 引擎错误处理兜底。
+///
+/// **用户手动模式优先**：设置 → 解码引擎 选定后，上方全部规则让位——
+/// [PlaybackEngineMode.system] 一律 just_audio，[PlaybackEngineMode.ffmpeg]
+/// 一律 media_kit（桌面端除外，桌面端恒 media_kit）。
 EngineKind routeForFormat(String? format, {String? codec}) {
   // 桌面端（Windows/macOS/Linux）全量走 media_kit（libmpv + FFmpeg）：
   // - Windows：just_audio（ExoPlayer）无原生实现；
@@ -37,6 +42,13 @@ EngineKind routeForFormat(String? format, {String? codec}) {
           defaultTargetPlatform == TargetPlatform.linux)) {
     return EngineKind.mediaKit;
   }
+  // 用户手动指定的全局解码引擎：显式选择优先于下方全部自动规则。
+  // - system → 全部系统解码（ExoPlayer，硬件解码省电）
+  // - ffmpeg → 全部 media_kit（FFmpeg 软解，兼容性最好）
+  final manualMode = AppPlaybackEngineSettings.mode.value;
+  if (manualMode == PlaybackEngineMode.system) return EngineKind.justAudio;
+  if (manualMode == PlaybackEngineMode.ffmpeg) return EngineKind.mediaKit;
+
   // codec 判断优先：eac3/ac3/alac 等 ExoPlayer 设备解码不可靠的编码直接
   // 走 media_kit（FFmpeg），即使容器是 m4a（format 不在黑名单）。
   if (FeiNiuTranscodeService.isMediaKitCodec(codec)) {
