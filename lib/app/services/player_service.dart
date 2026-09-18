@@ -728,15 +728,19 @@ class PlayerService with WidgetsBindingObserver {
     if (idx >= list.length - 1) {
       // 逻辑队尾：漫游补链；loop 回卷到逻辑队首（可能跨引擎）。
       if (playbackMode.value == PlaybackMode.shuffle) {
-        if (_roamStartPending) {
+        // 漫游只对「全是云端歌」的队列启用（见 setPlaybackMode）
+        if (_roamStartPending && !list.any((s) => s.isLocal)) {
           _roamStartPending = false;
-          await _startRoamFromPending();
-          return;
+          if (await _startRoamFromPending()) return;
         }
+        _roamStartPending = false;
         await _autoExtendQueue();
         if (queue.value.length > list.length) {
           await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
+          return;
         }
+        // 队列到头：客户端随机接着放（离线/本地队列都能用）
+        await _playRandomNext();
         return;
       }
       if (playbackMode.value == PlaybackMode.loop) {
@@ -748,6 +752,25 @@ class PlayerService with WidgetsBindingObserver {
       return;
     }
     await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
+  }
+
+  /// 随机播放（客户端实现）：从当前队列里随机挑一首接着放。
+  ///
+  /// 服务端漫游（roam）是飞牛云端能力，未登录/离线调不通——过去失败被静默
+  /// 吞掉，表现为「切到随机播放后和顺序播放没区别」。本地队列与离线状态
+  /// 一律走这里。
+  Future<void> _playRandomNext() async {
+    final list = queue.value;
+    if (list.length <= 1) return;
+    final current = currentIndex.value;
+    final rnd = Random();
+    var next = rnd.nextInt(list.length);
+    var guard = 0;
+    while (next == current && guard++ < 8) {
+      next = rnd.nextInt(list.length);
+    }
+    _debugLog('shuffle(local) -> $next / ${list.length}');
+    await _advanceToLogicalIndex(next, resumePlayback: true);
   }
 
   /// 判断引擎当前歌曲是否「真的播放过」：位置推进超过 [_playedThreshold]，
@@ -879,14 +902,6 @@ class PlayerService with WidgetsBindingObserver {
           return (kind: EngineKind.justAudio, transcode: true);
         }
         final kind = await routeForSong(s);
-        // 只打印走 media_kit 的异常路由（正常 just_audio 不刷屏），用于
-        // 确诊「为什么普通歌进了 media_kit」。
-        if (kDebugMode && kind == EngineKind.mediaKit) {
-          final fmt = FeiNiuTranscodeService.instance.resolvedFormatForSync(s);
-          // debugPrint(
-          //   '[PlayerService] engineKind ${s.title} fmt=$fmt -> mediaKit',
-          // );
-        }
         return (kind: kind, transcode: false);
       }),
     );
@@ -2370,7 +2385,8 @@ class PlayerService with WidgetsBindingObserver {
   /// 待启动漫游：当前播放列表被切换为随机模式后，当前曲目播完/切到队尾时
   /// 调用。用 roam-start 拉取新漫游链替换当前队列并继续播放，实现
   /// 「列表循环 → 随机」的平滑过渡（播完当前歌后开始漫游）。
-  Future<void> _startRoamFromPending() async {
+  /// 启动服务端漫游链。返回是否成功（失败时调用方退回客户端随机）。
+  Future<bool> _startRoamFromPending() async {
     try {
       final deviceId = await AuthService.instance.ensureDeviceId();
       final response = await FeiNiuApiClient.instance.getRoamStart(deviceId);
@@ -2395,10 +2411,10 @@ class PlayerService with WidgetsBindingObserver {
         mode: PlaybackMode.shuffle,
         roamChainId: response.current.roamId,
       );
+      return true;
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('PlayerService startRoamFromPending error: $e');
-      }
+      debugPrint('PlayerService startRoamFromPending error: $e');
+      return false;
     }
   }
 
@@ -2706,14 +2722,7 @@ class PlayerService with WidgetsBindingObserver {
   }
 
   Future<void> cyclePlaybackMode() async {
-    final current = playbackMode.value;
-    final next = switch (current) {
-      PlaybackMode.shuffle => PlaybackMode.loop,
-      PlaybackMode.loop => PlaybackMode.single,
-      PlaybackMode.single => PlaybackMode.shuffle,
-    };
-
-    await setPlaybackMode(next);
+    await setPlaybackMode(nextPlaybackMode(playbackMode.value));
   }
 
   Future<void> setPlaybackMode(PlaybackMode mode) async {
@@ -2725,10 +2734,12 @@ class PlayerService with WidgetsBindingObserver {
     _schedulePersistPlaybackState();
     try {
       if (mode == PlaybackMode.shuffle) {
-        // 进入随机模式：run 不自动回卷，播完由逻辑层 roam 补链。
-        // 若当前队列不是漫游队列（roamId 为空），标记「当前曲播完后启动漫游」，
-        // 让播完/切到队尾时走 roam-start 而非继续顺序播原列表。
-        _roamStartPending = roamId == null || roamId!.isEmpty;
+        // 进入随机模式：run 不自动回卷，播完由逻辑层补链。
+        // 服务端漫游只在「已连接飞牛且队列全是云端歌」时有意义——
+        // 本地队列走漫游会被换成服务器曲目，必须用客户端随机。
+        final hasLocal = queue.value.any((s) => s.isLocal);
+        _roamStartPending =
+            !hasLocal && (roamId == null || roamId!.isEmpty);
         await _applyPlaybackMode(mode);
       } else {
         _roamStartPending = false;
