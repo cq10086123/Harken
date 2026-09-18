@@ -12,6 +12,7 @@ import '../../app/router/app_router.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/services/source/local/local_library_service.dart';
 import '../../app/state/settings_layout_state.dart';
 import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/song_state.dart';
@@ -49,7 +50,7 @@ class _SongsPageState extends State<SongsPage>
   static const int _pageSize = 100;
 
   @override
-  List<SongEntity> get multiSelectSongs => _songs.value;
+  List<SongEntity> get multiSelectSongs => _displaySongs;
 
   final ScrollController _listController = ScrollController();
   final GlobalKey<AppPageScaffoldState> _scaffoldKey =
@@ -61,12 +62,36 @@ class _SongsPageState extends State<SongsPage>
   int _currentPage = 1;
   int _totalSongs = 0;
   late final _songs = createSignal<List<SongEntity>>([]);
+
+  /// 本地音源歌曲（与远端分开存）。
+  ///
+  /// **不能混进 `_songs`**：`_songs.value.length` 参与分页 hasMore 判定，
+  /// 混入本地条目会让「还有更多」提前变 false（少加载远端页）。
+  late final _localSongs = createSignal<List<SongEntity>>([]);
+
+  /// 展示与播放队列用 = 远端 + 本地（本地排在最后）。
+  List<SongEntity> get _displaySongs => [
+        ..._songs.value,
+        ..._localSongs.value,
+      ];
+
   late final _isLoading = createSignal(true);
   late final _sortKey = createSignal('title');
   late final _ascending = createSignal(true);
   late final _currentId = createSignal<String?>(null);
   late final _isLoadingMore = createSignal(false);
   late final _isRefreshing = createSignal(false);
+
+  /// 读取本地音源歌曲（页面加载与下拉刷新时调用，幂等）。
+  Future<void> _appendLocalSongs() async {
+    final local = await LocalLibraryService.instance.songs();
+    if (!mounted) return;
+    _localSongs.value = local;
+    debugPrint(
+      '[SongsPage] 本地歌曲 ${local.length} 首，展示合计 '
+      '${_displaySongs.length} 首',
+    );
+  }
 
   bool _hasMoreSongs = true;
 
@@ -197,6 +222,7 @@ class _SongsPageState extends State<SongsPage>
           key: _cacheKey(),
           jsonData: jsonEncode(songs.map((s) => s.toMap()).toList()),
         );
+        await _appendLocalSongs();
         debugPrint('[SongsPage] forceRefresh done, songs=${songs.length}');
       } catch (e) {
         debugPrint('[SongsPage] forceRefresh error: $e');
@@ -218,6 +244,7 @@ class _SongsPageState extends State<SongsPage>
             _preloadCovers(data);
           }
           _isRefreshing.value = false; // 后台刷新完成（成功或失败都关掉右上角转圈）
+          unawaited(_appendLocalSongs());
         }
       }
 
@@ -254,6 +281,7 @@ class _SongsPageState extends State<SongsPage>
           _preloadCovers(cached);
           // _isRefreshing 保持 true，后台刷新完成后 onData 会关掉
         }
+        unawaited(_appendLocalSongs());
       } else {
         debugPrint('[SongsPage] cache miss, loaded from network');
       }
@@ -267,6 +295,8 @@ class _SongsPageState extends State<SongsPage>
         } else {
           debugPrint('[SongsPage] has stale data on screen, hiding refresher');
         }
+        // 连不上飞牛时本地歌照常展示（本地音源不依赖网络）
+        unawaited(_appendLocalSongs());
       }
     }
   }
@@ -404,7 +434,7 @@ class _SongsPageState extends State<SongsPage>
   }
 
   void _playSong(int index) {
-    final songs = _songs.value;
+    final songs = _displaySongs;
     if (songs.isEmpty) return;
     // 已加载数据不足队列上限时，自动分页拉取后续歌曲填充到上限
     _player.playQueueFilledToLimit(
@@ -533,7 +563,7 @@ class _SongsPageState extends State<SongsPage>
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final songs = _songs.value;
+              final songs = _displaySongs;
               if (songs.isEmpty) {
                 return Center(
                   child: Column(
