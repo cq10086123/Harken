@@ -33,6 +33,7 @@ import 'app/services/source/source_registry.dart';
 import 'app/state/settings_island_lyric.dart';
 import 'app/state/settings_lyric_companion.dart';
 import 'app/state/settings_match.dart';
+import 'app/state/settings_playback_engine_state.dart';
 import 'app/state/settings_state.dart';
 
 /// 启动步骤看门狗：单步 4 秒超时 + 异常吞掉（记日志）。
@@ -130,6 +131,10 @@ Future<void> main() async {
   // 转码设置须在 PlayerService（MediaNotificationService.init）之前加载：
   // 启动恢复自动播放时 _sourceForSong 会同步读转码开关，未加载会读到默认关。
   await _startupGuard(AppTranscodeSettings.ensureLoaded(), 'AppTranscodeSettings.ensureLoaded');
+  await _startupGuard(
+    AppPlaybackEngineSettings.ensureLoaded(),
+    'AppPlaybackEngineSettings.ensureLoaded',
+  );
   // 音源配置须在 PlayerService 启动恢复之前加载：_sourceForSong 按
   // song.sourceId 分派取源，未加载时 configFor 会回落到隐式飞牛配置，
   // 本地音源的歌在启动恢复的那一刻会被当成飞牛歌处理。
