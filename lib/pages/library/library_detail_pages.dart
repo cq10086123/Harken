@@ -13,6 +13,7 @@ import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/cue_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
+import '../../app/services/source/local/local_media_kind.dart';
 
 import '../../app/state/settings_lyric_companion.dart';
 import '../../app/state/settings_playback_state.dart';
@@ -687,25 +688,41 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
   late final _loading = createSignal(true);
   late final _songs = createSignal<List<SongEntity>>([]);
   late final _showCovers = createSignal(true);
-  // 排序偏好持久化（选中后跨会话记住）。默认：本地音源专辑（有声书场景）
-  // 按集数排序，飞牛远程专辑按轨道号。
-  static const String _prefsSortKey = 'album_detail_sort_mode_v1';
-  static const String _prefsSortAscending =
-      'album_detail_sort_ascending_v1';
-  late final _sortKey = createSignal(
-    widget.albumGuid == null ? 'episode' : 'trackNumber',
-  );
+  /// 排序偏好按**专辑**分别记忆（key 带专辑标识）。
+  ///
+  /// 旧版是全局 key：在某个有声书专辑里选了「集数」排序，所有音乐专辑也
+  /// 跟着变集数排序。v2 起按专辑隔离，旧 key 不再读取（各自回默认）。
+  String get _prefsScope =>
+      widget.albumGuid ?? 'local-album:${widget.albumName}';
+  String get _prefsSortKey => 'album_detail_sort_mode_v2::$_prefsScope';
+  String get _prefsSortAscending =>
+      'album_detail_sort_ascending_v2::$_prefsScope';
+
+  /// 本地专辑识别出的媒体类型（有声书 / 音乐）；远端专辑为 null。
+  /// 决定进页面时的默认排序，并标在头部供用户确认。
+  late final _mediaKind = createSignal<LocalMediaKind?>(null);
+
+  /// 用户是否已为**本专辑**手动选过排序（选过就不再被识别结果覆盖）。
+  bool _hasSavedSort = false;
+
+  /// 排序键。远端专辑默认轨道号；本地专辑先按轨道号兜底，等歌曲载入后
+  /// 按识别出的内容类型纠正（有声书→集数，音乐→轨道号）。
+  late final _sortKey = createSignal('trackNumber');
   late final _sortAscending = createSignal(true);
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final mode = prefs.getString(_prefsSortKey);
-    if (mode != null && mode.isNotEmpty) _sortKey.value = mode;
+    if (mode != null && mode.isNotEmpty) {
+      _sortKey.value = mode;
+      _hasSavedSort = true;
+    }
     final asc = prefs.getBool(_prefsSortAscending);
     if (asc != null) _sortAscending.value = asc;
   }
 
   Future<void> _savePrefs() async {
+    _hasSavedSort = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsSortKey, _sortKey.value);
     await prefs.setBool(_prefsSortAscending, _sortAscending.value);
@@ -830,6 +847,15 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
           return s.albumGuid == 'local-album:${widget.albumName}';
         }).toList();
         if (!mounted) return;
+        // 识别内容类型：有声书按集数排，音乐按轨道号/歌名排。
+        // 用户已为本专辑手动选过排序时不覆盖其选择。
+        final kind = detectLocalMediaKind(matched);
+        _mediaKind.value = kind;
+        if (!_hasSavedSort) {
+          _sortKey.value = kind == LocalMediaKind.audiobook
+              ? 'episode'
+              : 'trackNumber';
+        }
         _songs.value = _sortSafely(matched);
         _loading.value = false;
         return;
@@ -990,9 +1016,13 @@ class _AlbumDetailPageState extends State<AlbumDetailPage>
                 : '未知歌手';
             final year = albumYearFromSongs(songs);
             final songCountText = '${songs.length}首';
-            final infoText = year.isEmpty
+            final baseInfo = year.isEmpty
                 ? songCountText
                 : '$songCountText · $year';
+            // 本地专辑把识别出的内容类型标出来，用户一眼能确认识别对不对
+            final kind = _mediaKind.value;
+            final infoText =
+                kind == null ? baseInfo : '$baseInfo · ${kind.label}';
 
             final Set<String> participatingArtists = {};
             for (final song in songs) {
