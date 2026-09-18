@@ -121,17 +121,46 @@ class LocalSourceProvider {
     // Android 11+ 分区存储：没有「所有文件访问」时 dart:io 无法枚举共享
     // 存储（Directory.list 异常被 LocalScanner 静默吞掉 → 0 首）。此时
     // 走 MediaStore（photo_manager，只需 READ_MEDIA_AUDIO 普通弹窗）。
-    final bool useMediaStore = Platform.isAndroid &&
-        !await Permission.manageExternalStorage.status.isGranted;
-    final scanResult = useMediaStore
-        ? await const MediaStoreScanner().scanWithCovers(
-            source.includePaths,
-            isCancelled: isCancelled,
-          )
-        : await _scanner.scanWithCovers(
-            source.includePaths,
-            isCancelled: isCancelled,
-          );
+    // 双路线合并：MediaStore（无需所有文件访问，但新拷贝的文件可能
+    // 尚未被媒体库索引——这正是「新加文件夹扫出 0 首」的根因）+
+    // dart:io 遍历（需「所有文件访问」，能发现未索引的新文件）。
+    // 两路并集按歌曲 id 去重，覆盖最全；无权限时 dart:io 路线静默为空。
+    LocalScanResult scanResult;
+    if (Platform.isAndroid) {
+      final viaMs = await const MediaStoreScanner().scanWithCovers(
+        source.includePaths,
+        isCancelled: isCancelled,
+      );
+      final viaIo = await _scanner.scanWithCovers(
+        source.includePaths,
+        isCancelled: isCancelled,
+      );
+      final mergedEntries = <LocalScanEntry>[...viaMs.entries];
+      final seenIds =
+          mergedEntries.map((e) => localSongId(e.path)).toSet();
+      for (final e in viaIo.entries) {
+        if (seenIds.add(localSongId(e.path))) mergedEntries.add(e);
+      }
+      final mergedImages = <String, List<String>>{};
+      for (final entry in viaMs.imagesByDirectory.entries) {
+        mergedImages[entry.key] = [...entry.value];
+      }
+      for (final entry in viaIo.imagesByDirectory.entries) {
+        final existing = (mergedImages[entry.key] ??= <String>[]);
+        for (final name in entry.value) {
+          if (!existing.contains(name)) existing.add(name);
+        }
+      }
+      scanResult = LocalScanResult(
+        entries: mergedEntries,
+        imagesByDirectory: mergedImages,
+      );
+    } else {
+      scanResult = await _scanner.scanWithCovers(
+        source.includePaths,
+        isCancelled: isCancelled,
+      );
+    }
     final entries = scanResult.entries;
     if (isCancelled?.call() ?? false) return const LocalScanSummary();
 
