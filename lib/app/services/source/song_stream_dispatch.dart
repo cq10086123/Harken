@@ -12,6 +12,7 @@ import '../../state/song_state.dart';
 /// 的字段，不依赖全局连接状态。
 enum SongStreamKind {
   feiniuRemote,
+  webdavRemote,
   localFile,
 }
 
@@ -25,8 +26,17 @@ enum SongStreamKind {
 /// WebDAV 音源落地时在此新增分支（`webdavRemote`），调用方无需改动。
 SongStreamKind streamKindFor(SongEntity song) {
   if (song.isLocal) return SongStreamKind.localFile;
+  // WebDAV 音源的歌：sourceId 前缀为 `webdav-`（见
+  // `AudioSourceKindX.idPrefix`），走独立的带 Basic Auth 的远端链路。
+  if (song.effectiveSourceId.startsWith('webdav-')) {
+    return SongStreamKind.webdavRemote;
+  }
   return SongStreamKind.feiniuRemote;
 }
+
+/// 是否走 WebDAV 远端链路（Basic Auth 直连原始流；不缓存、不转码）。
+bool isWebDavRemoteSong(SongEntity song) =>
+    streamKindFor(song) == SongStreamKind.webdavRemote;
 
 /// 是否走飞牛远端链路（缓存 / 转码 / CUE / Cookie 全部只对飞牛有意义）。
 bool isFeiniuRemoteSong(SongEntity song) =>
