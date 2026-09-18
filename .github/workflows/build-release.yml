@@ -143,7 +143,7 @@ jobs:
       - run: flutter precache --android
       - name: 提取版本号（手动触发可覆盖）
         run: |
-          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '')
           PUB_NAME=${FULL_VERSION%%+*}
           PUB_CODE=${FULL_VERSION##*+}
           [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
@@ -240,7 +240,7 @@ jobs:
       - name: 提取版本号（手动触发可覆盖）
         shell: bash
         run: |
-          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '')
           PUB_NAME=${FULL_VERSION%%+*}
           PUB_CODE=${FULL_VERSION##*+}
           [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
@@ -298,7 +298,7 @@ jobs:
       - name: 提取版本号（手动触发可覆盖）
         shell: bash
         run: |
-          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '')
           PUB_NAME=${FULL_VERSION%%+*}
           PUB_CODE=${FULL_VERSION##*+}
           [ "$PUB_CODE" = "$FULL_VERSION" ] && PUB_CODE=1
@@ -340,7 +340,7 @@ jobs:
           fetch-depth: 0
       - name: 提取版本号（手动触发可覆盖）
         run: |
-          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '')
           PUB_NAME=${FULL_VERSION%%+*}
           VERSION="${{ inputs.version_name }}"
           [ -z "$VERSION" ] && VERSION="$PUB_NAME"
