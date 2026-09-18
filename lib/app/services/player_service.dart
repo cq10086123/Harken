@@ -127,6 +127,9 @@ class PlayerService with WidgetsBindingObserver {
   /// 避免「用过随机就再也回不到原来的顺序」。
   List<String>? _preShuffleOrderIds;
 
+  /// 上一次随机跳到的队列索引：手动连按「下一首」时不重复挑到同一首。
+  int? _lastRandomPick;
+
   /// 判定「歌曲确实在播」的位置阈值：位置推进超过它才算真实播放
   /// （用于区分 mpv「加载失败也报 completed」与真正播完）。
   static const Duration _playedThreshold = Duration(seconds: 1);
@@ -808,6 +811,29 @@ class PlayerService with WidgetsBindingObserver {
     if (idx < 0) return;
     _debugLog('shuffle off: 恢复原队列顺序');
     await _applyReorderedQueue(restored, idx);
+  }
+
+  /// 手动「下一首」的随机挑曲：从队列里随机挑一首（排除当前这首与
+  /// 上一次挑过的这首），跳过去接着放。
+  ///
+  /// 歌曲自然播完时的前进**不走这里**——引擎按打乱后的队列顺序自己前进
+  /// （应用层插不进去，见 [_applyShuffleOrder] 的说明）；两条路都是随机，
+  /// 只是来源不同。
+  Future<void> _playRandomNext() async {
+    final list = queue.value;
+    if (list.length <= 1) return;
+    final current = currentIndex.value;
+    final rnd = Random();
+    var next = rnd.nextInt(list.length);
+    var guard = 0;
+    while (guard++ < 24 &&
+        (next == current ||
+            (list.length > 2 && _lastRandomPick != null && next == _lastRandomPick))) {
+      next = rnd.nextInt(list.length);
+    }
+    _lastRandomPick = next;
+    _debugLog('shuffle: 手动随机 → $next/${list.length} ${list[next].title}');
+    await _advanceToLogicalIndex(next, resumePlayback: true);
   }
 
   /// 一轮随机放完：把当前曲放回队首、其余重新随机，从第 2 首继续放。
@@ -2219,22 +2245,12 @@ class PlayerService with WidgetsBindingObserver {
         await _startRoamFromPending();
         return;
       }
-      if (idx < list.length - 1) {
-        // 队列中间：按打乱后的顺序前进（随机序即队列顺序）。
-        // **这里必须显式前进再返回**：分支一旦进入不能什么都不做就返回——
-        // v1.7.11 首版就是漏了这条，随机模式下「下一首」彻底失灵（真机复现）。
-        await _advanceToLogicalIndex(idx + 1);
-        return;
-      }
-      // 队尾：先尝试漫游追加；追加成功放新追加的这首，否则重排新一轮继续放
-      // ——手动切下一首不该被卡在队尾。
-      final beforeLen = list.length;
-      await _extendRoamQueue();
-      if (queue.value.length > beforeLen) {
-        await _advanceToLogicalIndex(idx + 1);
-      } else {
-        await _startNewShuffleRound();
-      }
+      // 手动「下一首」在随机模式下的语义：**每按一次就重新随机挑一首**
+      // （用户预期，也是队列页文案「随机模式下由系统随机选歌」的承诺），
+      // 不是按打乱后的固定顺序走下一首——那是歌曲自然播完时的行为。
+      // **分支内必须真的前进**：什么都不做就 return 会让下一首彻底失灵
+      // （v1.7.11 的教训）。
+      await _playRandomNext();
       return;
     }
     final targetIdx = idx + 1;
