@@ -297,7 +297,25 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  /// 未登录时的漫游卡片兜底：从本地曲库随机挑一首展示。
+  /// 返回 false 表示本地也没有歌（卡片保持占位）。
+  Future<bool> _loadLocalRoamFallback() async {
+    final songs = await LocalLibraryService.instance.songs();
+    if (!mounted || songs.isEmpty) return false;
+    final pick = songs[DateTime.now().microsecondsSinceEpoch % songs.length];
+    _roamId.value = null;
+    _roamSong.value = pick;
+    _roamQueue.value = [pick];
+    debugPrint('[HomePage] 未登录，漫游卡片使用本地随机: ${pick.title}');
+    return true;
+  }
+
   Future<void> _loadRoam() async {
+    // 未登录时漫游接口不可用：直接用本地随机歌填充卡片，不发请求、不报错。
+    if (!AuthService.instance.isLoggedIn.value) {
+      await _loadLocalRoamFallback();
+      return;
+    }
     try {
       final deviceId = await AuthService.instance.ensureDeviceId();
       final response = await _api.getRoamStart(deviceId);
@@ -333,6 +351,14 @@ class _HomePageState extends State<HomePage>
   /// 队列会重建当前 run，打断正在播放的音乐。需要播放新歌时由用户点 Banner
   /// 触发 [_extendAndPlay]（以当前显示歌为队首重开队列）。
   Future<void> _refreshRoam() async {
+    // 未登录：刷新 = 再随机换一首本地歌（无服务端请求、无失败提示）。
+    if (!AuthService.instance.isLoggedIn.value) {
+      final ok = await _loadLocalRoamFallback();
+      if (!ok && mounted) {
+        AppToast.showGlobal('登录飞牛音乐后可用在线漫游', type: ToastType.info);
+      }
+      return;
+    }
     final currentRoamId = _roamId.value;
     try {
       final deviceId = await AuthService.instance.ensureDeviceId();
@@ -355,6 +381,9 @@ class _HomePageState extends State<HomePage>
     String deviceId,
     String? currentRoamId,
   ) async {
+    if (!AuthService.instance.isLoggedIn.value) {
+      return null;
+    }
     try {
       if (currentRoamId == null || currentRoamId.isEmpty) {
         final start = await _api.getRoamStart(deviceId);
@@ -488,6 +517,7 @@ class _HomePageState extends State<HomePage>
 
   /// 漫游队列扩展器 — 每次队列快播完时调用 roam-next 获取新歌曲追加
   Future<List<SongEntity>> _roamQueueExtender() async {
+    if (!AuthService.instance.isLoggedIn.value) return [];
     try {
       final roamId = _roamId.value;
       if (roamId == null || roamId.isEmpty) return [];
@@ -511,6 +541,23 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _extendAndPlay(SongEntity first) async {
+    // 未登录：漫游链不可用，改为「本地曲库随机播放」（从当前卡片这首歌开始）。
+    if (!AuthService.instance.isLoggedIn.value) {
+      final local = await LocalLibraryService.instance.songs();
+      if (!mounted) return;
+      if (local.isEmpty) {
+        AppToast.showGlobal('登录飞牛音乐后可用在线漫游', type: ToastType.info);
+        return;
+      }
+      final start = first.isLocal ? first : local[0];
+      final queue = start.isLocal
+          ? local  // 本地歌直接用整库做随机池
+          : [start, ...local];
+      debugPrint('[HomePage] 未登录，漫游卡片播放本地随机 ${queue.length} 首');
+      await _player.playQueue(queue, queue.indexOf(start),
+          mode: PlaybackMode.shuffle);
+      return;
+    }
     try {
       // 直接用 banner 当前漫游链：_loadRoam 已用 getRoamStart 拿到
       // current（显示歌）+ next，并存于 _roamQueue / _roamId。用这套队列
