@@ -152,21 +152,26 @@ class WebDavClient {
   /// 返回值**不含** [dirPath] 自身。
   Future<List<WebDavResource>> list(String dirPath) async {
     final ep = await resolveActiveEndpoint();
-    var res = await propfindFollowed(ep, dirPath, depth: '1');
-    if (res.statusCode != 207) {
-      final status = res.statusCode;
-      if (status == 401) {
-        throw StateError('鉴权失败（401）——检查账号密码');
+    List<WebDavResource> all;
+    try {
+      final res = await propfindFollowed(ep, dirPath, depth: '1');
+      if (res.statusCode != 207) {
+        final status = res.statusCode;
+        if (status == 401) {
+          throw StateError('鉴权失败（401）——检查账号密码');
+        }
+        throw StateError('PROPFIND $dirPath 失败：HTTP $status');
       }
-      throw StateError('PROPFIND $dirPath 失败：HTTP $status');
-    }
-    var all = _parseListResponse(res, dirPath);
-    // 某些服务器对无尾斜杠的集合路径返回空 multistatus：补上斜杠重试一次。
-    if (all.isEmpty && !dirPath.endsWith('/')) {
-      res = await propfindFollowed(ep, dirPath + '/', depth: '1');
-      if (res.statusCode == 207) {
-        all = _parseListResponse(res, dirPath);
+      all = _parseListResponse(res, dirPath);
+    } on StateError {
+      // 某些服务器对无尾斜杠的集合路径返回空 multistatus：补上斜杠重试
+      // 一次；仍然空/解析失败则把错误抛给上层（扫描失败区可见）。
+      if (dirPath.endsWith('/')) rethrow;
+      final res2 = await propfindFollowed(ep, dirPath + '/', depth: '1');
+      if (res2.statusCode != 207) {
+        rethrow;
       }
+      all = _parseListResponse(res2, dirPath);
     }
     final self = normalizeDirPath(dirPath);
     return all.where((r) => normalizeDirPath(r.path) != self).toList();
@@ -193,13 +198,27 @@ class WebDavClient {
       throw StateError(
           'PROPFIND $dirPath 返回空响应体（HTTP $status）');
     }
+    List<WebDavResource> parsed;
     try {
-      return parsePropfind(body);
+      parsed = parsePropfind(body);
     } catch (e) {
       throw StateError(
           'PROPFIND $dirPath 响应解析失败：$e；body 开头: '
           '${body.substring(0, body.length > 150 ? 150 : body.length)}');
     }
+    final self = normalizeDirPath(dirPath);
+    final children =
+        parsed.where((r) => normalizeDirPath(r.path) != self).toList();
+    if (children.isEmpty) {
+      // 只含自身 = 服务器按 Depth 0 处理了请求；绝不能静默当「空目录」。
+      final preview = body.length > 200 ? body.substring(0, 200) : body;
+      debugPrint('[WebDavClient] list($dirPath) 解析为 0 子项；'
+          'body ${body.length} 字符，开头: $preview');
+      throw StateError(
+          'PROPFIND $dirPath 返回 0 子项（HTTP $status，'
+          '${body.length} 字符）——服务器可能未按 Depth 1 处理');
+    }
+    return children;
   }
 
   /// 连接测试：返回 (服务器根目录下的条目数)。
