@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signals_flutter/signals_flutter.dart' hide computed;
 
 import '../../app/router/app_page_route.dart';
-import '../../app/services/companion/metadata_companion_service.dart';
 import '../../app/services/db/dao/song_dao.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/cue_service.dart';

@@ -2043,8 +2043,7 @@ Future<void> _showPlaylistNameDialog(
   );
 }
 
-/// 导入歌单对话框（手机友好）：加高多行输入框展示完整链接、一键从剪贴板粘贴、
-/// 粘贴后识别平台提示。返回提取出的歌单链接，取消返回 null。class _PlaylistNameDialog extends StatefulWidget {
+class _PlaylistNameDialog extends StatefulWidget {
   final String title;
   final String initial;
   final String confirmText;
