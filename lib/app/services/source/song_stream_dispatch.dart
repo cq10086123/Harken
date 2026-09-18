@@ -31,3 +31,18 @@ SongStreamKind streamKindFor(SongEntity song) {
 /// 是否走飞牛远端链路（缓存 / 转码 / CUE / Cookie 全部只对飞牛有意义）。
 bool isFeiniuRemoteSong(SongEntity song) =>
     streamKindFor(song) == SongStreamKind.feiniuRemote;
+
+/// 本地歌的实际文件路径。
+///
+/// 归一掉可能存在的 `file://` 前缀——`AudioSource.file` 与
+/// `mk.Media`（mpv）都吃纯路径，带前缀时 mpv 可能当 URL 处理。
+/// 路径缺失返回空串（调用方自行兜底）。
+String localFilePathOf(SongEntity song) {
+  final raw = (song.uri ?? '').trim();
+  if (raw.isEmpty) return '';
+  if (raw.startsWith('file://')) {
+    return Uri.tryParse(raw)?.toFilePath() ??
+        raw.substring('file://'.length);
+  }
+  return raw;
+}
