@@ -28,8 +28,11 @@ import 'app/services/feiniu/account_store.dart';
 import 'app/services/feiniu/api_client.dart';
 import 'app/services/feiniu/auth_service.dart';
 import 'app/services/feiniu/fn_connection_probe_service.dart';
+import 'app/services/song_match/match_source_state.dart';
 import 'app/services/source/source_registry.dart';
 import 'app/state/settings_island_lyric.dart';
+import 'app/state/settings_lyric_companion.dart';
+import 'app/state/settings_match.dart';
 import 'app/state/settings_playback_engine_state.dart';
 import 'app/state/settings_state.dart';
 
@@ -187,6 +190,19 @@ Future<void> main() async {
   if (Platform.isAndroid) {
     IslandLyricService.start();
   }
+  // 数据源匹配设置 + 服务端增强（FnMusicEnhance）设置：启动时加载。
+  await _startupGuard(MatchSettings.ensureLoaded(), 'MatchSettings.ensureLoaded');
+  await _startupGuard(MatchSourceState.instance.ensureLoaded(), 'MatchSourceState.instance.ensureLoaded');
+  // 后台刷新可用平台（不阻塞启动）：首次运行拉取列表并默认全启用，
+  // 后续启动读缓存；后端不可达时静默保留缓存。
+  unawaited(() async {
+    try {
+      await MatchSourceState.instance.refresh();
+    } catch (_) {
+      // 后端不可达：保留缓存，不阻塞启动
+    }
+  }());
+  await _startupGuard(LyricCompanionSettings.ensureLoaded(), 'LyricCompanionSettings.ensureLoaded');
   await _startupGuard(AppBackgroundSettings.ensureLoaded(), 'AppBackgroundSettings.ensureLoaded');
   // 液体玻璃设置需在首帧前加载：首帧即尊重持久化的关闭态，避免闪一帧玻璃。
   await _startupGuard(AppGlassSettings.ensureLoaded(), 'AppGlassSettings.ensureLoaded');
