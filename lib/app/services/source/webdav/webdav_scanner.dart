@@ -215,7 +215,9 @@ class WebDavScanner {
     }
 
     /// 深度优先：处理完一个目录的歌**立刻入库**，再递归子目录。
-    Future<void> walk(String dir) async {
+    /// [isRoot] 为 true 时失败必须向上抛——顶层失败（鉴权/路径/解析）被
+    /// 单目录兜底吞掉的话，用户只会看到「完成 0 首」而无任何线索。
+    Future<void> walk(String dir, {bool isRoot = false}) async {
       if (isCancelled?.call() ?? false) return;
       dirsVisited++;
       report(dir);
@@ -224,7 +226,8 @@ class WebDavScanner {
         items = await client.list(dir);
       } catch (e) {
         debugPrint('[WebDavScanner] 列目录失败 $dir: $e');
-        return; // 单个目录失败不拖垮整个扫描
+        if (isRoot) rethrow;
+        return;
       }
       final dirKey = normalizeDirPath(dir);
       if (seenAudioDirs.add(dirKey)) {
@@ -253,7 +256,7 @@ class WebDavScanner {
     }
 
     try {
-      await walk(normalizeDirPath(config.path));
+      await walk(normalizeDirPath(config.path), isRoot: true);
       await flush();
     } finally {
       try {
