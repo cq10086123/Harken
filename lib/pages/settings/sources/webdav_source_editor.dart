@@ -126,6 +126,7 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
       setState(() {
         _browsing = true;
         _currentDir = '/';
+        _selectedPath = '/';
         _currentChildren = root;
       });
     } catch (e) {
@@ -146,6 +147,7 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
       if (!mounted) return;
       setState(() {
         _currentDir = target;
+        _selectedPath = target;
         _currentChildren = children;
         _loadingDir = false;
       });
@@ -170,6 +172,7 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
       if (!mounted) return;
       setState(() {
         _currentDir = target;
+        _selectedPath = target;
         _currentChildren = children;
         _loadingDir = false;
       });
@@ -287,7 +290,9 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
                     }
                     Navigator.of(context).pop(config);
                   },
-                  child: const Text('保存'),
+                  child: Text(_selectedPath == '/'
+                      ? '保存（扫描整台服务器）'
+                      : '保存（只扫 $_selectedPath）'),
                 ),
               ],
             ],
@@ -305,8 +310,13 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '选择音乐根目录（当前：${_currentDir == '/' ? '/' : _currentDir}）',
+          '将扫描：${_currentDir == '/' ? '/（整台服务器）' : _currentDir}',
           style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const Text(
+          '浏览到哪一层就扫哪一层（含全部子目录）。点进目标书籍/歌手'
+          '文件夹后直接保存即可。',
+          style: TextStyle(color: Colors.grey, fontSize: 12),
         ),
         const SizedBox(height: 4),
         Row(
@@ -315,18 +325,6 @@ class _WebDavSourceEditorState extends State<WebDavSourceEditor> {
               onPressed: _loadingDir || _currentDir == '/' ? null : _goUp,
               icon: const Icon(Icons.arrow_upward, size: 18),
               label: const Text('上一级'),
-            ),
-            const Spacer(),
-            FilledButton.tonal(
-              onPressed: () {
-                setState(() => _selectedPath = _currentDir);
-                AppToast.show(
-                  context,
-                  '已选根目录：${_currentDir == '/' ? '/' : _currentDir}',
-                  type: ToastType.info,
-                );
-              },
-              child: const Text('选这一层'),
             ),
           ],
         ),
