@@ -103,7 +103,7 @@ void main() {
       expect(names(entries), ['a.mp3']);
     });
 
-    test('普通音乐目录不被误跳', async {
+    test('普通音乐目录不被误跳', () async {
       make('Music/周杰伦/a.flac');
       make('Music/Album Art/b.mp3');
 
@@ -208,7 +208,9 @@ void main() {
       expect(progress.length, greaterThanOrEqualTo(3));
       expect(progress.first.dirsVisited, 1);
       expect(progress.last.dirsVisited, progress.length);
-      expect(progress.last.filesFound, 3);
+      // 回调在「进入目录」时触发：最后一个回调时该目录自己的歌还没收进来
+      // （根 + s1 的 2 首已计入），所以 filesFound 是 2 而不是 3。
+      expect(progress.last.filesFound, 2);
     });
 
     test('中文与空格路径正常工作', () async {
