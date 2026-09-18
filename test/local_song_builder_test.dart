@@ -100,7 +100,7 @@ void main() {
 
     test('名字里的引号与反斜杠被转义，不破坏 JSON', () {
       final encoded = LocalSongBuilder.encodeArtist(r'AC"DC \ Live');
-      expect(() => jsonDecode(encoded), returnsNormally);
+      expect(() => jsonDecode(encoded!), returnsNormally);
 
       final song = SongEntity(id: 'x', title: 't', artist: encoded);
       expect(song.artistDisplayName, r'AC"DC \ Live');
@@ -108,7 +108,7 @@ void main() {
 
     test('换行符被转义', () {
       final encoded = LocalSongBuilder.encodeAlbum('A\nB');
-      expect(() => jsonDecode(encoded), returnsNormally);
+      expect(() => jsonDecode(encoded!), returnsNormally);
     });
   });
 
@@ -247,9 +247,11 @@ void main() {
       int? fileModifiedMs = 1700000000000,
       int? fileSize = 40000000,
       bool tagsParsed = true,
+      String? album = '[{"name":"专辑"}]',
     }) => SongEntity(
       id: 'x',
       title: 't',
+      album: album,
       artist: '[]',
       fileModifiedMs: fileModifiedMs,
       fileSize: fileSize,
