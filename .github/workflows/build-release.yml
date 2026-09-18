@@ -141,6 +141,13 @@ jobs:
       # 作编译期依赖，缺失即报 "File/directory does not exist"。precache 显式预下载全部
       # Android 引擎产物（含 arm32/arm64/x64）后再构建。
       - run: flutter precache --android
+      # 插件（如 image_cropper）的 build.gradle 可能要求旧平台（android-33），
+      # Gradle 自动补装会因许可/网络偶发失败 —— 这里显式预装并预接受许可。
+      - name: 预装 Android SDK 平台（含 android-33）并接受许可
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-33" > /dev/null 2>&1 ||             echo "::warning::android-33 预装失败，交由 Gradle 自动补装"
       - name: 提取版本号（手动触发可覆盖）
         run: |
           FULL_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
