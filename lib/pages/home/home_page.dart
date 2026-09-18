@@ -13,6 +13,7 @@ import '../../app/services/feiniu/auth_service.dart';
 import '../../app/services/feiniu/track_service.dart';
 import '../../app/services/player_service.dart';
 import '../../app/services/source/local/local_library_service.dart';
+import '../../app/services/source/song_stream_dispatch.dart';
 import '../../app/state/settings_state.dart';
 import '../../app/state/song_state.dart';
 import '../../app/tv/tv_layout.dart';
@@ -110,10 +111,20 @@ class _HomePageState extends State<HomePage>
   late final _playlists = createSignal<List<FeiNiuPlaylist>>([]);
   late final _recentTracks = createSignal<List<SongEntity>>([]);
   late final _isRefreshing = createSignal(false);
+  DateTime _lastLocalMerge = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// WebDAV 扫描入库会连续触发 revision：节流到 2 秒合并一次。
+  void _onLocalRevision() {
+    final now = DateTime.now();
+    if (now.difference(_lastLocalMerge).inMilliseconds < 2000) return;
+    _lastLocalMerge = now;
+    _mergeLocalIntoHome();
+  }
 
   @override
   void initState() {
     super.initState();
+    LocalLibraryService.revision.addListener(_onLocalRevision);
     _loadAll();
     _maybeShowTvEdgeHint();
   }
@@ -412,12 +423,15 @@ class _HomePageState extends State<HomePage>
     final recent = await svc.recentlyPlayed(limit: 10);
     final favorites = await svc.favorites();
     if (!mounted) return;
+    // 过滤条件必须是「非 DB 曲库歌」：WebDAV 歌 isLocal=false，
+    // 只按 isLocal 剔除会让它们在重复合并时翻倍。
+    bool fromDbLibrary(SongEntity s) => s.isLocal || isWebDavRemoteSong(s);
     _recentSongs.value = [
-      ..._recentSongs.value.where((s) => !s.isLocal),
+      ..._recentSongs.value.where((s) => !fromDbLibrary(s)),
       ...recent,
     ];
     _favoriteSongs.value = [
-      ..._favoriteSongs.value.where((s) => !s.isLocal),
+      ..._favoriteSongs.value.where((s) => !fromDbLibrary(s)),
       ...favorites,
     ];
     debugPrint(
