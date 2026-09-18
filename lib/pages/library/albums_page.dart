@@ -20,6 +20,7 @@ import '../../app/utils/deferred_page_init_mixin.dart';
 import '../../components/index.dart';
 import '../../pages/search/search_page.dart';
 import 'library_detail_pages.dart';
+import 'library_metadata.dart';
 
 class AlbumsPage extends StatefulWidget {
   const AlbumsPage({super.key});
@@ -163,9 +164,37 @@ class _AlbumsPageState extends State<AlbumsPage>
   }
 
   @override
+  DateTime _lastLocalAlbumsRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onLocalLibraryRevision() {
+    // 扫描入库会连续触发：节流到 2 秒一次。
+    final now = DateTime.now();
+    if (now.difference(_lastLocalAlbumsRefresh).inMilliseconds < 2000) return;
+    _lastLocalAlbumsRefresh = now;
+    _refreshLocalAlbums();
+  }
+
+  /// 全量重建本地专辑组（扫描期间新专辑陆续出现）。
+  Future<void> _refreshLocalAlbums() async {
+    final grouped = await LocalLibraryService.instance.byAlbum();
+    if (!mounted) return;
+    final local = [
+      for (final e in grouped.entries)
+        AlbumGroup.local(
+          name: e.key,
+          songCount: e.value.length,
+          localCoverPath: _firstLocalCoverOf(e.value),
+        ),
+    ]..sort((a, b) =>
+        a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _localGroups.value = local;
+  }
+
   void initState() {
     super.initState();
     _gridController.addListener(_handleScroll);
+    LocalLibraryService.revision
+        .addListener(_onLocalLibraryRevision);
     scheduleDeferredInit();
   }
 
@@ -216,6 +245,27 @@ class _AlbumsPageState extends State<AlbumsPage>
     } finally {
       if (mounted) _loadingMore.value = false;
     }
+  }
+
+  void _applyMetadataUpdate(String guid, LibraryEntityMetadata metadata) {
+    if (!_groups.value.any((group) => group.album.guid == guid)) return;
+    final albums = replaceAlbumMetadata(
+      _groups.value.map((group) => group.album).toList(),
+      guid,
+      metadata,
+    );
+    final groups = albums.map(AlbumGroup.fromFeiNiuAlbum).toList();
+    _groups.value = groups;
+
+    unawaited(
+      ApiCacheManager.instance.set(
+        scope: 'album_list',
+        key: 'page=1&size=$_pageSize',
+        jsonData: jsonEncode(
+          groups.take(_pageSize).map((group) => group.toJson()).toList(),
+        ),
+      ),
+    );
   }
 
   /// 本地音源专辑分组：从本地库按专辑聚合。
@@ -622,6 +672,10 @@ class _AlbumsPageState extends State<AlbumsPage>
                             albumName: g.name,
                             // 本地专辑无飞牛 guid，详情页走数据库分支
                             albumGuid: g.isLocal ? null : g.album.guid,
+                            onMetadataChanged: (metadata) {
+                              if (!mounted) return;
+                              _applyMetadataUpdate(g.album.guid, metadata);
+                            },
                           ),
                         ),
                       );
