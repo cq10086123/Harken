@@ -15,7 +15,7 @@ void main() {
     if (Platform.isWindows) {
       final root = AppPortableStorage.portableRoot();
       expect(root, isNotNull);
-      expect(root, endsWith('feiniumusic_data'));
+      expect(root, endsWith('harken_data'));
     } else {
       expect(AppPortableStorage.portableRoot(), isNull);
     }
