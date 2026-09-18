@@ -69,10 +69,21 @@ class _RecentPlaybackPageState extends State<RecentPlaybackPage>
   }
 
   @override
+  DateTime _lastLocalRecentRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onLocalLibraryRevision() {
+    final now = DateTime.now();
+    if (now.difference(_lastLocalRecentRefresh).inMilliseconds < 2000) return;
+    _lastLocalRecentRefresh = now;
+    _loadLocalRecent();
+  }
+
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScroll);
     _loadHistory();
+    LocalLibraryService.revision
+        .addListener(_onLocalLibraryRevision);
   }
 
   void _handleScroll() {
