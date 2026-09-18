@@ -15,8 +15,10 @@ import 'player_engine.dart';
 /// - **media_kit**：
 ///   - 黑名单格式（dsf/dff/dsd/wma/ape/dts/aiff…）：ExoPlayer 原生无法解码，
 ///     media_kit 直连原始流，FFmpeg 软解。
-///   - codec 未知 + 可疑容器（m4a/aac/mp4/mkv…）：首发即 media_kit，杜绝
-///     「先跑系统解码、再中途升级引擎」造成的中断与进度回退（旧策略）。
+///   - codec 未知 + 可疑容器（m4a/aac/mp4/mkv…）的**在线**歌曲：首发即
+///     media_kit，杜绝「先跑系统解码、再中途升级引擎」造成的中断与进度
+///     回退。**本地歌曲不适用此规则**（容器格式由扩展名确定，系统解码
+///     器处理本地 m4a/aac 是标准能力），仍走 just_audio 硬件解码。
 ///   - 黑名单 codec（eac3/ac3/alac/dts/truehd/mlp…）：M4A/MP4 容器内常见的
 ///     环绕声/无损编码，ExoPlayer 设备解码器支持因设备而异（解码器不可用或
 ///     静默失败时进度条走但无声音），media_kit（FFmpeg）必定出声。
@@ -30,7 +32,11 @@ import 'player_engine.dart';
 /// **用户手动模式优先**：设置 → 解码引擎 选定后，上方全部规则让位——
 /// [PlaybackEngineMode.system] 一律 just_audio，[PlaybackEngineMode.ffmpeg]
 /// 一律 media_kit（桌面端除外，桌面端恒 media_kit）。
-EngineKind routeForFormat(String? format, {String? codec}) {
+EngineKind routeForFormat(
+  String? format, {
+  String? codec,
+  bool isLocal = false,
+}) {
   // 桌面端（Windows/macOS/Linux）全量走 media_kit（libmpv + FFmpeg）：
   // - Windows：just_audio（ExoPlayer）无原生实现；
   // - macOS：流需携带认证头，AVPlayer 不可靠；
@@ -59,7 +65,11 @@ EngineKind routeForFormat(String? format, {String? codec}) {
   // media_kit」——设备解码正常时纯属误伤，且切换瞬间的 seek 失败会让
   // 整首歌从头重播。改为**路由层首发 media_kit**：没有中途切换就没有
   // 中断，任何设备都必定出声。
-  if (codec == null &&
+  // 仅对**在线**歌曲生效：本规则的出发点是远程流的 codec 标记常缺失、
+  // 设备解码器可能静默失败；本地文件的容器格式由扩展名确定，套用此规则
+  // 只会让本地 m4a/aac 白白走 FFmpeg 软解（多耗 CPU/电量）。
+  if (!isLocal &&
+      codec == null &&
       FeiNiuTranscodeService.isRiskySilenceContainer(format)) {
     return EngineKind.mediaKit;
   }
@@ -77,5 +87,5 @@ EngineKind routeForFormat(String? format, {String? codec}) {
 Future<EngineKind> routeForSong(SongEntity song) async {
   final format = await FeiNiuTranscodeService.instance.resolvedFormatFor(song);
   final codec = await FeiNiuTranscodeService.instance.resolvedCodecFor(song);
-  return routeForFormat(format, codec: codec);
+  return routeForFormat(format, codec: codec, isLocal: song.isLocal);
 }
