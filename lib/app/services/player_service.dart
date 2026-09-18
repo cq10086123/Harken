@@ -811,14 +811,20 @@ class PlayerService with WidgetsBindingObserver {
   }
 
   /// 一轮随机放完：把当前曲放回队首、其余重新随机，从第 2 首继续放。
+  ///
+  /// 这里**不走 [_applyReorderedQueue]**：那是「中途重排、保住当前曲进度」用的，
+  /// 此刻当前曲恰好刚播完（位置在末尾），按它重载会把已播完的歌从头再放一遍。
+  /// 直接加载新顺序的第 2 首即可。
   Future<void> _startNewShuffleRound() async {
     final list = queue.value;
     final current = currentSong.value;
     if (list.length <= 1 || current == null) return;
     final rest = list.where((s) => s.id != current.id).toList()..shuffle();
     _debugLog('shuffle: 新一轮（${rest.length + 1} 首）');
-    await _applyReorderedQueue([current, ...rest], 0);
-    await _advanceToLogicalIndex(1, resumePlayback: true);
+    queue.value = [current, ...rest];
+    _applyEngineKinds(await _computeEngineKinds(queue.value));
+    await _activateLogicalIndex(1, initialPosition: Duration.zero);
+    await _startPlayback();
   }
 
   /// 应用重排后的队列：写回队列 + 重算引擎路由 + 按 [keepIndex] 重载当前曲
