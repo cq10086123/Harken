@@ -123,10 +123,6 @@ class PlayerService with WidgetsBindingObserver {
   /// 防止坏源无限重建。
   bool _engineRebuiltForThisStreak = false;
 
-  /// 进入随机模式**之前**的队列顺序（歌曲 id）。退出随机模式时据此恢复，
-  /// 避免「用过随机就再也回不到原来的顺序」。
-  List<String>? _preShuffleOrderIds;
-
   /// 上一次随机跳到的队列索引：手动连按「下一首」时不重复挑到同一首。
   int? _lastRandomPick;
 
@@ -655,26 +651,8 @@ class PlayerService with WidgetsBindingObserver {
           logicalIdx >= list.length - 2) {
         unawaited(_autoExtendQueue());
       }
-      // 漫游/随机模式：切到新歌时，若它是队列最后一首（没有可播的下一首了），
-      // 就请求追加一首到队尾。漫游走 roam-next；本地随机（playShuffle）走
-      // queueExtender；刚切换的「待启动漫游」在此启动。
-      if (playbackMode.value == PlaybackMode.shuffle &&
-          logicalIdx >= 0 &&
-          list.isNotEmpty &&
-          logicalIdx == list.length - 1 &&
-          _roamAppendQueuedCount <= 0) {
-        if (_roamStartPending) {
-          _roamStartPending = false;
-          unawaited(_startRoamFromPending());
-        } else {
-          final id = roamId;
-          if (id != null && id.isNotEmpty) {
-            unawaited(_extendRoamQueue());
-          } else {
-            unawaited(_autoExtendQueue());
-          }
-        }
-      }
+      // 随机模式不再按「落到队尾就追加」补歌：每首歌播完都会回到应用层
+      // 当场随机挑下一首（见 [_handleEngineCompleted]），队列按原顺序保留。
     });
     // loop/shuffle 物理流不再需要：PlaybackMode 是应用层唯一真源，
     // 引擎加载队列后由 setLoopMode 显式应用。media_kit 引擎没有对应流。
@@ -732,23 +710,13 @@ class PlayerService with WidgetsBindingObserver {
         return;
       }
     }
-    if (playbackMode.value == PlaybackMode.shuffle &&
-        idx >= list.length - 1) {
-      // 随机模式的一轮放完（队尾）：云端队列先尝试漫游补链，补不到就
-      // **重排新一轮继续**——随机播放不该在队尾停下来。
-      // 队列中间的那些歌不需要在这里插话：它们的顺序已在进入随机模式时
-      // 打乱过了，引擎顺序前进即是随机序（见 [_applyShuffleOrder]）。
-      if (_roamStartPending && !list.any((s) => s.isLocal)) {
-        _roamStartPending = false;
-        if (await _startRoamFromPending()) return;
+    if (playbackMode.value == PlaybackMode.shuffle) {
+      // 随机模式：**任何一首播完都当场随机挑下一首**（单例 run 保证每首歌
+      // 播完都会回到这里）。云端漫游队列在队尾时后台补歌，不打断随机跳。
+      if (idx >= list.length - 1 && (roamId?.isNotEmpty ?? false)) {
+        unawaited(_extendRoamQueue());
       }
-      _roamStartPending = false;
-      await _autoExtendQueue();
-      if (queue.value.length > list.length) {
-        await _advanceToLogicalIndex(idx + 1, resumePlayback: true);
-        return;
-      }
-      await _startNewShuffleRound();
+      await _playRandomNext();
       return;
     }
     if (idx >= list.length - 1) {
@@ -768,57 +736,15 @@ class PlayerService with WidgetsBindingObserver {
   ///
   /// 只打乱当前曲之后的尾部：已经播过的部分保持原样（历史不该被改写），
   /// 当前正在播的这首也停在原位，用户听不到任何中断。
-  Future<void> _applyShuffleOrder() async {
-    final list = queue.value;
-    final idx = currentIndex.value;
-    if (list.length <= 2 || idx < 0 || idx >= list.length) return;
-    _preShuffleOrderIds ??= list.map((s) => s.id).toList(growable: false);
-    final reordered = shuffledTailOrder(list, idx);
-    var changed = false;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id != reordered[i].id) {
-        changed = true;
-        break;
-      }
-    }
-    if (!changed) return; // 打乱后顺序没变（队列太短/恰好一样）：不用重载
-    _debugLog('shuffle: 打乱当前曲之后的 ${list.length - idx - 1} 首');
-    await _applyReorderedQueue(reordered, idx);
-  }
-
-  /// 退出随机播放：把队列顺序恢复成进入随机之前的样子（尽力而为）。
+    /// 退出随机播放：把队列顺序恢复成进入随机之前的样子（尽力而为）。
   ///
   /// 期间被漫游追加的新歌仍留在末尾；对不上的情况（歌曲已被删除等）则放弃重排，
   /// 不冒险破坏当前播放。
-  Future<void> _restorePreShuffleOrder() async {
-    final saved = _preShuffleOrderIds;
-    if (saved == null || saved.isEmpty) return;
-    _preShuffleOrderIds = null;
-    final list = queue.value;
-    if (list.isEmpty) return;
-    final byId = {for (final s in list) s.id: s};
-    final restored = <SongEntity>[];
-    for (final id in saved) {
-      final song = byId.remove(id);
-      if (song != null) restored.add(song);
-    }
-    restored.addAll(list.where((s) => byId.containsKey(s.id)));
-    if (restored.length != list.length) return;
-    final currentId = currentSong.value?.id;
-    final idx = currentId == null
-        ? -1
-        : restored.indexWhere((s) => s.id == currentId);
-    if (idx < 0) return;
-    _debugLog('shuffle off: 恢复原队列顺序');
-    await _applyReorderedQueue(restored, idx);
-  }
-
-  /// 手动「下一首」的随机挑曲：从队列里随机挑一首（排除当前这首与
+    /// 手动「下一首」的随机挑曲：从队列里随机挑一首（排除当前这首与
   /// 上一次挑过的这首），跳过去接着放。
   ///
-  /// 歌曲自然播完时的前进**不走这里**——引擎按打乱后的队列顺序自己前进
-  /// （应用层插不进去，见 [_applyShuffleOrder] 的说明）；两条路都是随机，
-  /// 只是来源不同。
+  /// 歌曲自然播完时同样走这里：随机模式下每首歌是独立 run，播完必回调
+  /// completed → 应用层随机挑下一首（见 [_runBounds] 的单例说明）。
   Future<void> _playRandomNext() async {
     final list = queue.value;
     if (list.length <= 1) return;
@@ -841,37 +767,10 @@ class PlayerService with WidgetsBindingObserver {
   /// 这里**不走 [_applyReorderedQueue]**：那是「中途重排、保住当前曲进度」用的，
   /// 此刻当前曲恰好刚播完（位置在末尾），按它重载会把已播完的歌从头再放一遍。
   /// 直接加载新顺序的第 2 首即可。
-  Future<void> _startNewShuffleRound() async {
-    final list = queue.value;
-    final current = currentSong.value;
-    if (list.length <= 1 || current == null) return;
-    final rest = list.where((s) => s.id != current.id).toList()..shuffle();
-    _debugLog('shuffle: 新一轮（${rest.length + 1} 首）');
-    queue.value = [current, ...rest];
-    _applyEngineKinds(await _computeEngineKinds(queue.value));
-    await _activateLogicalIndex(1, initialPosition: Duration.zero);
-    await _startPlayback();
-  }
-
-  /// 应用重排后的队列：写回队列 + 重算引擎路由 + 按 [keepIndex] 重载当前曲
+    /// 应用重排后的队列：写回队列 + 重算引擎路由 + 按 [keepIndex] 重载当前曲
   /// （保留进度与播放/暂停状态）。与解码引擎设置变更同一套流程
   /// （见 [refreshDecoderRouting]）。
-  Future<void> _applyReorderedQueue(
-    List<SongEntity> reordered,
-    int keepIndex,
-  ) async {
-    final seekPos = position.value;
-    final wasPlaying = isPlaying.value;
-    queue.value = reordered;
-    _applyEngineKinds(await _computeEngineKinds(reordered));
-    await _activateLogicalIndex(
-      keepIndex,
-      initialPosition: seekPos > Duration.zero ? seekPos : null,
-    );
-    if (wasPlaying) await _startPlayback();
-  }
-
-  /// 判断引擎当前歌曲是否「真的播放过」：位置推进超过 [_playedThreshold]，
+    /// 判断引擎当前歌曲是否「真的播放过」：位置推进超过 [_playedThreshold]，
   /// 或已接近时长末尾（兼容超短歌曲 / 恢复场景）。用于区分 mpv 加载失败误报
   /// completed 与真正播完，供连续失败保护计数使用。
   bool _enginePlayedFarEnough(PlayerEngine engine) {
@@ -1039,7 +938,11 @@ class PlayerService with WidgetsBindingObserver {
     // 转码歌曲独立成单例 run（size 1）：just_audio 一次 setAudioSources 会
     // 预载整 run，若把多首转码歌并入同 run，会并行打爆转码会话。单例保证
     // 每次激活只对当前这一首转码，且相邻同引擎歌不并入。
-    if (logicalIndex < tc.length && tc[logicalIndex]) {
+    // 随机模式：每首歌都独立成单例 run——引擎一次只装一首，任何一首播完
+    // 引擎都会回调 completed，应用层才能在每次播完时当场随机挑下一首
+    // （否则引擎按整段列表自己顺序前进，应用层插不上手，随机名存实亡）。
+    if (logicalIndex < tc.length &&
+        (tc[logicalIndex] || playbackMode.value == PlaybackMode.shuffle)) {
       return (
         start: logicalIndex,
         end: logicalIndex,
@@ -2848,12 +2751,8 @@ class PlayerService with WidgetsBindingObserver {
         final hasLocal = queue.value.any((s) => s.isLocal);
         _roamStartPending =
             !hasLocal && (roamId == null || roamId!.isEmpty);
-        // 打乱当前曲之后的队列顺序（引擎按顺序播 = 随机播放）。
-        await _applyShuffleOrder();
       } else {
         _roamStartPending = false;
-        // 退出随机模式：把顺序恢复成进随机之前的样子。
-        await _restorePreShuffleOrder();
       }
       await _applyPlaybackMode(mode);
     } catch (e) {
@@ -3867,12 +3766,6 @@ class PlayerService with WidgetsBindingObserver {
     final safeIndex = currentQueueIndex.clamp(0, songs.length - 1);
     currentIndex.value = safeIndex;
     currentSong.value = songs[safeIndex];
-    // 新的一套队列：丢弃上一套的「打乱前顺序」记录。若当前正处于随机模式，
-    // 直接打乱尾部——否则「已经在随机模式，再点一张专辑」会按原顺序放。
-    _preShuffleOrderIds = null;
-    if (playbackMode.value == PlaybackMode.shuffle) {
-      queue.value = shuffledTailOrder(songs, safeIndex);
-    }
     _maybeProbeSong(songs[safeIndex]);
     _hydrateAndSetCurrentSong(songs[safeIndex]);
     _emitSnapshot(force: true);
