@@ -63,13 +63,13 @@ class FeiNiuTranscodeService {
     return mediaKitCodecs.contains(codec.trim().toLowerCase());
   }
 
-  /// 可能内嵌风险 codec（EAC3/ALAC…）的容器格式。codec 未知（null）时，
-  /// 这些容器需要无声看门狗兜底。
+  /// 可能内嵌风险 codec（EAC3/ALAC…）的容器格式。codec 未知（null）时
+  /// 无法判断设备解码器是否可用，路由层直接首发 FFmpeg（media_kit）。
   static const Set<String> riskySilenceContainers = {
     'm4a', 'm4b', 'm4p', 'mp4', 'aac', 'mov', '3gp', 'mka', 'mkv',
   };
 
-  /// 容器是否可能内嵌风险 codec（codec 未知时据此判断是否需要看门狗）。
+  /// 容器是否可能内嵌风险 codec（codec 未知时路由层据此首发 FFmpeg）。
   static bool isRiskySilenceContainer(String? format) {
     if (format == null || format.isEmpty) return false;
     return riskySilenceContainers.contains(format.trim().toLowerCase());
