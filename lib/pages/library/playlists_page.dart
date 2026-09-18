@@ -13,7 +13,7 @@ import 'package:signals_flutter/signals_flutter.dart' hide computed;
 import '../../app/router/app_page_route.dart';
 import '../../app/services/feiniu/api_client.dart';
 import '../../app/services/feiniu/api_models.dart';
-import '../../app/services/feiniu/favorite_service.dart';
+import '../../app/services/source/favorite_router.dart';
 import '../../app/services/feiniu/playlist_service.dart';
 import '../../app/services/db/dao/playlist_dao.dart';
 import '../../app/services/source/playlist_router.dart';
@@ -446,6 +446,16 @@ class _PlaylistsPageState extends State<PlaylistsPage>
       initialCoverId: playlist.coverId,
       onCoverUploaded: (id) => coverId = id,
       onSubmit: (name) async {
+        // 本地歌单归本地库管：服务端没有它，直连接口必然失败
+        if (playlist.guid.startsWith(PlaylistDao.localIdPrefix)) {
+          await PlaylistDao.instance
+              .renameLocalPlaylist(playlist.guid, name);
+          if (!mounted) return;
+          AppToast.show(context, '已保存');
+          await _loadLocalPlaylists();
+          _applySortFromBase();
+          return;
+        }
         await _service.editPlaylist(
           guid: playlist.guid,
           name: name,
@@ -469,6 +479,15 @@ class _PlaylistsPageState extends State<PlaylistsPage>
       ),
     );
     if (confirmed != true) return;
+    // 本地歌单归本地库管（同上）
+    if (playlist.guid.startsWith(PlaylistDao.localIdPrefix)) {
+      await PlaylistDao.instance.deleteLocalPlaylist(playlist.guid);
+      if (!mounted) return;
+      AppToast.show(context, '已删除');
+      await _loadLocalPlaylists();
+      _applySortFromBase();
+      return;
+    }
     await _service.deletePlaylist(playlist.guid);
     if (!mounted) return;
     AppToast.show(context, '已删除');
@@ -1427,9 +1446,9 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage>
                                   ? null
                                   : () async {
                                       final ids = _selectedIds.value.toList();
-                                      final failed = await FeiNiuFavoriteService
+                                      final failed = await FavoriteRouter
                                           .instance
-                                          .favoriteAll(ids);
+                                          .setFavoriteByIds(ids, true);
                                       if (!context.mounted) return;
                                       final ok = ids.length - failed;
                                       AppToast.show(
@@ -1980,7 +1999,14 @@ Future<bool> showAddToPlaylistDialog(
           constraints: const BoxConstraints(maxHeight: 300),
           child: playlists.isEmpty
               ? const Center(
-                  child: Text('暂无歌单', style: TextStyle(color: Colors.grey)),
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      '还没有歌单\n点下方「新建歌单」创建（无需登录，离线可用）',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
                 )
               : ListView.builder(
                   shrinkWrap: true,
