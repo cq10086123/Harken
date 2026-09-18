@@ -10,6 +10,10 @@ import '../../../app/services/source/local/local_source_repository.dart';
 import '../../../app/services/source/source_config.dart';
 import '../../../app/services/source/source_kind.dart';
 import '../../../app/services/source/source_registry.dart';
+import '../../../app/services/source/webdav/webdav_client.dart';
+import '../../../app/services/source/webdav/webdav_source_repository.dart';
+import '../../../app/services/source/webdav/webdav_scanner.dart';
+import 'webdav_source_editor.dart';
 import '../../../app/state/song_state.dart';
 import '../../../components/index.dart';
 
@@ -173,6 +177,91 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
     }
   }
 
+  // ── WebDAV ───────────────────────────────────────────────────
+
+  Future<void> _editWebDav(WebDavSourceConfig? config) async {
+    final source = config ??
+        WebDavSourceConfig(
+          id: WebDavSourceRepository.instance.newId(),
+          name: '',
+          endpoint: '',
+        );
+    final next = await showWebDavSourceEditor(context, source);
+    if (next == null) return;
+    await WebDavSourceRepository.instance.upsert(next);
+    await AudioSourceRegistry.instance.refresh();
+    if (!mounted) return;
+    AppToast.show(context, '已保存「' + next.name + '」，点刷新图标扫描');
+  }
+
+  Future<void> _removeWebDav(WebDavSourceConfig config) async {
+    final ok = await AppDialog.showConfirm(
+      context,
+      title: '移除「' + config.name + '」',
+      content: '只移除音源配置；已扫描入库的歌曲保留在曲库里，'
+          '但将因无法取流而不可播放。重新添加同名源并扫描即可恢复。',
+      confirmText: '移除',
+      isDestructive: true,
+    );
+    if (ok != true || !mounted) return;
+    await AudioSourceRegistry.instance.remove(config.id);
+    if (!mounted) return;
+    AppToast.show(context, '已移除');
+  }
+
+  /// WebDAV 扫描走**全局会话**：退出页面扫描继续，回到页面进度恢复。
+  Future<void> _scanWebDav(WebDavSourceConfig config) async {
+    if (WebDavScanSession.instance.isRunning) {
+      AppToast.show(context, '已有扫描在跑', type: ToastType.info);
+      return;
+    }
+    if (config.endpoint.trim().isEmpty) {
+      AppToast.show(context, '还没填地址', type: ToastType.info);
+      return;
+    }
+    AppToast.show(context, '扫描在后台进行，可以边扫边听');
+    await WebDavScanSession.instance.start(config);
+  }
+
+  Widget _buildWebDavTile(WebDavSourceConfig source) {
+    final isScanning = _scanningId == source.id;
+    return AppSettingTile(
+      title: source.name,
+      subtitle: source.endpoint,
+      leading: const Icon(Icons.dns_outlined),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isScanning)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            IconButton(
+              tooltip: '扫描',
+              icon: const Icon(Icons.refresh),
+              onPressed:
+                  _scanningId != null ? null : () => _scanWebDav(source),
+            ),
+          IconButton(
+            tooltip: '编辑',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: _scanningId != null ? null : () => _editWebDav(source),
+          ),
+          IconButton(
+            tooltip: '移除',
+            icon: const Icon(Icons.delete_outline),
+            onPressed:
+                _scanningId != null ? null : () => _removeWebDav(source),
+          ),
+        ],
+      ),
+      onTap: _scanningId != null ? null : () => _editWebDav(source),
+    );
+  }
+
   // ── 辅助 ──────────────────────────────────────────────────────
 
   Future<String?> _pickDirectory() async {
@@ -263,6 +352,10 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
                     .where((s) => s.kind == AudioSourceKind.local)
                     .cast<LocalSourceConfig>()
                     .toList();
+                final webdav = sources
+                    .where((s) => s.kind == AudioSourceKind.webdav)
+                    .cast<WebDavSourceConfig>()
+                    .toList();
 
                 return ListView(
                   padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
@@ -283,10 +376,33 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
                             ]
                           : [for (final s in local) _buildLocalTile(s)],
                     ),
-                    if (_scanningId != null) ...[
-                      const SizedBox(height: 16),
-                      _buildScanProgress(),
-                    ],
+                    const SizedBox(height: 16),
+                    AppSettingSection(
+                      title: 'WebDAV',
+                      children: [
+                        ...[for (final s in webdav) _buildWebDavTile(s)],
+                        AppSettingTile(
+                          title: '添加 WebDAV 音源',
+                          subtitle: 'NAS / 网盘的 WebDAV 地址，流式播放',
+                          leading: const Icon(Icons.dns_outlined),
+                          trailing: const Icon(Icons.add),
+                          onTap: _scanningId != null
+                              ? null
+                              : () => _editWebDav(null),
+                        ),
+                      ],
+                    ),
+                    ValueListenableBuilder<String?>(
+                      valueListenable:
+                          WebDavScanSession.instance.runningSourceId,
+                      builder: (context, running, _) {
+                        if (running == null) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: _buildScanProgress(),
+                        );
+                      },
+                    ),
                     if (_lastSummary != null && _scanningId == null) ...[
                       const SizedBox(height: 16),
                       _buildSummary(),
@@ -352,20 +468,31 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
   }
 
   Widget _buildScanProgress() {
-    final p = _scanProgress;
-    return AppSettingSection(
-      title: '正在扫描',
-      children: [
-        AppSettingTile(
-          title: p == null ? '准备中…' : '已处理 ${p.dirsVisited} / ${p.filesFound}',
-          subtitle: _cancelRequested ? '正在取消…' : '可随时取消，已扫到的会入库',
-          leading: const Icon(Icons.hourglass_top_outlined),
-          trailing: TextButton(
-            onPressed: () => setState(() => _cancelRequested = true),
-            child: const Text('取消'),
-          ),
-        ),
-      ],
+    return ValueListenableBuilder<String>(
+      valueListenable: WebDavScanSession.instance.runningSourceName,
+      builder: (context, name, _) {
+        return ValueListenableBuilder<WebDavScanProgress?>(
+          valueListenable: WebDavScanSession.instance.progress,
+          builder: (context, p, __) {
+            return AppSettingSection(
+              title: '正在扫描「$name」',
+              children: [
+                AppSettingTile(
+                  title: p == null
+                      ? '准备中…'
+                      : '已处理 ${p.filesProcessed} / ${p.filesFound}',
+                  subtitle: '扫描在后台进行，退出本页不会中断',
+                  leading: const Icon(Icons.hourglass_top_outlined),
+                  trailing: TextButton(
+                    onPressed: () => WebDavScanSession.instance.cancel(),
+                    child: const Text('取消'),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
