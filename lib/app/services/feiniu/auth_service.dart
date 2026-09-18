@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../state/settings_fn_state.dart';
+import '../../utils/cache_version_store.dart';
+import '../../utils/page_cache_store.dart';
+import '../db/dao/song_dao.dart';
 import 'api_client.dart';
 
 /// 认证状态管理
@@ -125,6 +128,15 @@ class AuthService {
     username.value = null;
     // 清除连接信息（含安全码）
     await AppFnConnectionSettings.clearConnection();
+    // 清掉登录期间的界面数据缓存（内存 LRU + SQLite api_cache），
+    // 否则退出后各列表页仍显示上个账号的服务端数据（历史反馈）。
+    // 本地歌曲、本地歌单与收藏不受影响；正在播放的本地音乐不打断。
+    // 与账号切换的 AccountStore._clearDataCaches 同源，但不停止播放。
+    PageCacheStore.instance.clearAll();
+    try {
+      await SongDao.instance.clearApiCache();
+    } catch (_) {}
+    CacheVersionStore.instance.bump('song_library');
     if (kDebugMode) {
       debugPrint('[AuthService] Logged out');
     }
