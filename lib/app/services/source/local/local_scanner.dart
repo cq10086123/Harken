@@ -231,7 +231,11 @@ class LocalScanner {
   }
 
   String _basename(String path) {
-    final sep = path.lastIndexOf('/');
+    // Windows 的 dart:io 返回反斜杠路径，必须两种分隔符都认——
+    // 只认 '/' 会让跳过名单在 Windows 上永远匹配不到（目录剪枝整体失效）。
+    final i = path.lastIndexOf('/');
+    final j = path.lastIndexOf('\\');
+    final sep = i > j ? i : j;
     return sep < 0 ? path : path.substring(sep + 1);
   }
 }
