@@ -403,6 +403,52 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
                         );
                       },
                     ),
+                    ValueListenableBuilder<String?>(
+                      valueListenable: WebDavScanSession.instance.lastError,
+                      builder: (context, error, _) {
+                        if (error == null) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: AppSettingSection(
+                            title: '扫描失败',
+                            children: [
+                              AppSettingTile(
+                                title: '连接或扫描出错',
+                                subtitle: error,
+                                leading: const Icon(Icons.error_outline,
+                                    color: Colors.red),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    ValueListenableBuilder<WebDavScanSummary?>(
+                      valueListenable:
+                          WebDavScanSession.instance.lastSummary,
+                      builder: (context, s, _) {
+                        if (s == null ||
+                            WebDavScanSession.instance.isRunning) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: AppSettingSection(
+                            title: '上次 WebDAV 扫描结果',
+                            children: [
+                              AppSettingTile(
+                                title: '共 ' + s.scanned.toString() + ' 首',
+                                subtitle: '新增 ' + s.added.toString()
+                                    + ' · 更新 ' + s.updated.toString()
+                                    + ' · 失效 ' + s.markedDeleted.toString(),
+                                leading: const Icon(
+                                    Icons.check_circle_outline),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                     if (_lastSummary != null && _scanningId == null) ...[
                       const SizedBox(height: 16),
                       _buildSummary(),
@@ -474,14 +520,21 @@ class _AudioSourcesPageState extends State<AudioSourcesPage> {
         return ValueListenableBuilder<WebDavScanProgress?>(
           valueListenable: WebDavScanSession.instance.progress,
           builder: (context, p, __) {
+            final dirText = (p == null || p.currentDir.isEmpty)
+                ? '准备中…'
+                : '正在处理 ' + p.currentDir;
+            final countText = p == null
+                ? ''
+                : '已入库 ' + p.filesImported.toString() + ' 首 · 发现 '
+                    + p.filesFound.toString() + ' 首 · 目录 '
+                    + p.dirsVisited.toString();
             return AppSettingSection(
               title: '正在扫描「$name」',
               children: [
                 AppSettingTile(
-                  title: p == null
-                      ? '准备中…'
-                      : '已处理 ${p.filesProcessed} / ${p.filesFound}',
-                  subtitle: '扫描在后台进行，退出本页不会中断',
+                  title: dirText,
+                  subtitle: countText + '\n每扫完一个目录，歌曲/专辑页立即'
+                      '可见；退出本页不会中断',
                   leading: const Icon(Icons.hourglass_top_outlined),
                   trailing: TextButton(
                     onPressed: () => WebDavScanSession.instance.cancel(),
