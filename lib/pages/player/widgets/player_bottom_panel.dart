@@ -445,9 +445,10 @@ class BottomActions extends StatelessWidget {
         final mode = player.playbackModeSignal.value;
         final text = player.sleepTimerDisplayTextSignal.value;
         final icon = switch (mode) {
-          PlaybackMode.shuffle => Icons.shuffle,
+          PlaybackMode.sequential => Icons.playlist_play,
           PlaybackMode.loop => Icons.repeat,
           PlaybackMode.single => Icons.repeat_one,
+          PlaybackMode.shuffle => Icons.shuffle,
         };
         return AnimatedBuilder(
           animation: Listenable.merge([
@@ -467,7 +468,18 @@ class BottomActions extends StatelessWidget {
                     actions.add(
                       IconButton(
                         icon: Icon(icon, color: iconColor),
-                        onPressed: () => player.cyclePlaybackMode(),
+                        onPressed: () async {
+                          await player.cyclePlaybackMode();
+                          if (!context.mounted) return;
+                          // 切模式必须有反馈：只换一个 20px 图标，用户
+                          // 根本看不出生效没有（历史反馈：以为模式失效）。
+                          AppToast.show(
+                            context,
+                            playbackModeLabel(
+                              player.playbackModeSignal.value,
+                            ),
+                          );
+                        },
                       ),
                     );
                   }
@@ -1117,9 +1129,10 @@ class _PlaylistHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (IconData modeIcon, String modeLabel) = switch (mode) {
-      PlaybackMode.shuffle => (Icons.shuffle_rounded, '随机播放'),
-      PlaybackMode.single => (Icons.repeat_one_rounded, '单曲循环'),
+      PlaybackMode.sequential => (Icons.playlist_play_rounded, '顺序播放'),
       PlaybackMode.loop => (Icons.repeat_rounded, '列表循环'),
+      PlaybackMode.single => (Icons.repeat_one_rounded, '单曲循环'),
+      PlaybackMode.shuffle => (Icons.shuffle_rounded, '随机播放'),
     };
     return Column(
       children: [
@@ -1446,9 +1459,10 @@ class PosterControls extends StatelessWidget {
         final playing = player.isPlayingSignal.value;
         final mode = player.playbackModeSignal.value;
         final modeIcon = switch (mode) {
-          PlaybackMode.shuffle => Icons.shuffle_rounded,
+          PlaybackMode.sequential => Icons.playlist_play_rounded,
           PlaybackMode.loop => Icons.repeat_rounded,
           PlaybackMode.single => Icons.repeat_one_rounded,
+          PlaybackMode.shuffle => Icons.shuffle_rounded,
         };
         return Row(
           mainAxisAlignment: alignToTrack
